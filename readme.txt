@@ -1,7 +1,7 @@
 === Lookit SEO Copilot ===
 Contributors: lookitdesign
 Tags: yoast, seo, keyphrase, meta description, bulk edit
-Requires at least: 5.8
+Requires at least: 5.9
 Tested up to: 7.0
 Requires PHP: 7.4
 Stable tag: 3.34.1
