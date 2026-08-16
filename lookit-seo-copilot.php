@@ -7,7 +7,7 @@
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
- * Requires at least: 5.8
+ * Requires at least: 5.9
  * Requires PHP: 7.4
  * Text Domain:  lookit-seo-copilot
  */
