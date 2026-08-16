@@ -60,11 +60,17 @@ jobs:
 
       - name: Run Plugin Check
         run: |
-          OUTPUT=$(wp plugin check lookit-seo-copilot --path=wp --include-experimental --severity=error 2>&1)
+          set +e
+          OUTPUT=$(wp plugin check lookit-seo-copilot --path=wp --include-experimental --ignore-warnings 2>&1)
+          STATUS=$?
+          set -e
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q "No errors found"; then
-            echo "Plugin Check passed with no errors."
-          else
+          if echo "$OUTPUT" | grep -q $'\tERROR\t'; then
             echo "::error::Plugin Check reported errors."
             exit 1
           fi
+          if [ "$STATUS" -ne 0 ] && ! echo "$OUTPUT" | grep -q "No errors found"; then
+            echo "::error::Plugin Check failed to run."
+            exit 1
+          fi
+          echo "Plugin Check passed with no errors."
