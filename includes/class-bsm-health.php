@@ -47,16 +47,16 @@ class BSM_Health {
 		// survives leaving and returning to the tab. An explicit ?htype in the URL
 		// sets it; otherwise fall back to the saved preference.
 		$uid = get_current_user_id();
-		if ( $htype_get !== '' ) {
+		if ( '' !== $htype_get ) {
 			$htype = $htype_get;
 			update_user_meta( $uid, 'bsm_health_htype', $htype );
 		} else {
 			$htype = (string) get_user_meta( $uid, 'bsm_health_htype', true );
-			if ( $htype === '' ) {
+			if ( '' === $htype ) {
 				$htype = 'all';
 			}
 		}
-		if ( $htype !== 'all' && ! isset( $all_types[ $htype ] ) ) {
+		if ( 'all' !== $htype && ! isset( $all_types[ $htype ] ) ) {
 			$htype = 'all';
 		}
 
@@ -105,12 +105,12 @@ class BSM_Health {
 	public static function audit_post( WP_Post $post, array $dupe_ids = array() ): array {
 		$content = (string) $post->post_content;
 		$plain   = trim( wp_strip_all_tags( strip_shortcodes( $content ) ) );
-		$words   = $plain === '' ? 0 : count( preg_split( '/\s+/u', $plain ) );
+		$words   = '' === $plain ? 0 : count( preg_split( '/\s+/u', $plain ) );
 
 		$keyphrase = trim( (string) get_post_meta( $post->ID, BSM_META_KW, true ) );
 		$metadesc  = trim( (string) get_post_meta( $post->ID, BSM_META_DESC, true ) );
 		$seo_title = trim( (string) get_post_meta( $post->ID, BSM_META_TITLE, true ) );
-		if ( $seo_title === '' ) {
+		if ( '' === $seo_title ) {
 			$seo_title = get_the_title( $post );
 		}
 		// Strip Yoast template tokens (%%sitename%% etc.) for a fair length read.
@@ -124,18 +124,18 @@ class BSM_Health {
 		$int_list  = self::internal_links( $content );
 		$int_links = count( $int_list );
 
-		$G = array(); // groups
+		$groups = array();
 
 		/* ---- Keyphrase optimization ---- */
 		$kg = array();
-		if ( $keyphrase === '' ) {
+		if ( '' === $keyphrase ) {
 			$kg[] = self::chk( 'fail', 'Focus keyphrase set', 'No focus keyphrase — nothing to optimize against.' );
 		} else {
 			$kg[]    = self::chk( 'good', 'Focus keyphrase set', 'Keyphrase: “' . $keyphrase . '”.' );
 			$kg[]    = false !== strpos( mb_strtolower( $seo_title ), $kp )
 				? self::chk( 'good', 'Keyphrase in SEO title', 'Present in the title.' )
 				: self::chk( 'fail', 'Keyphrase in SEO title', 'Add the keyphrase to the SEO title.' );
-			$kg[]    = ( $metadesc !== '' && false !== strpos( mb_strtolower( $metadesc ), $kp ) )
+			$kg[]    = ( '' !== $metadesc && false !== strpos( mb_strtolower( $metadesc ), $kp ) )
 				? self::chk( 'good', 'Keyphrase in meta description', 'Present in the meta description.' )
 				: self::chk( 'fail', 'Keyphrase in meta description', 'Add the keyphrase to the meta description.' );
 			$kg[]    = false !== strpos( $post->post_name, sanitize_title( $keyphrase ) )
@@ -163,7 +163,7 @@ class BSM_Health {
 				$kg[] = self::chk( 'fail', 'Keyphrase density', 'Keyphrase does not appear in the body copy.' );
 			}
 		}
-		$G['Keyphrase optimization'] = $kg;
+		$groups['Keyphrase optimization'] = $kg;
 
 		/* ---- Titles & meta ---- */
 		$tg  = array();
@@ -176,18 +176,18 @@ class BSM_Health {
 			$tg[] = self::chk( 'fail', 'SEO title length', $len . ' characters — will truncate in results.' );
 		}
 		$dlen = mb_strlen( $metadesc );
-		if ( $metadesc === '' ) {
+		if ( '' === $metadesc ) {
 			$tg[] = self::chk( 'fail', 'Meta description', 'Missing — Google will write its own snippet.' );
 		} elseif ( $dlen >= BSM_DESC_LO && $dlen <= BSM_DESC_HI ) {
 			$tg[] = self::chk( 'good', 'Meta description', $dlen . ' characters — good length.' );
 		} else {
 			$tg[] = self::chk( 'warn', 'Meta description', $dlen . ' characters — aim for ' . BSM_DESC_LO . '–' . BSM_DESC_HI . '.' );
 		}
-		$is_dupe            = in_array( $post->ID, $dupe_ids, true );
-		$tg[]               = $is_dupe
+		$is_dupe                 = in_array( $post->ID, $dupe_ids, true );
+		$tg[]                    = $is_dupe
 			? self::chk( 'warn', 'Overlapping keyphrase', 'Another page targets this same keyphrase.' )
 			: self::chk( 'good', 'Overlapping keyphrase', 'This keyphrase is unique across the site.' );
-		$G['Titles & meta'] = $tg;
+		$groups['Titles & meta'] = $tg;
 
 		/* ---- Content quality ---- */
 		$cg = array();
@@ -200,7 +200,7 @@ class BSM_Health {
 		}
 		$h1 = 0;
 		foreach ( $headings as $h ) {
-			if ( $h['level'] === 1 ) {
+			if ( 1 === $h['level'] ) {
 				++$h1; }
 		}
 		if ( $h1 > 1 ) {
@@ -208,23 +208,23 @@ class BSM_Health {
 		} else {
 			$cg[] = self::chk( 'good', 'H1 headings', 'One H1 (theme supplies it if none is in the content).' );
 		}
-		$cg[]                 = self::hierarchy_check( $headings );
-		$G['Content quality'] = $cg;
+		$cg[]                      = self::hierarchy_check( $headings );
+		$groups['Content quality'] = $cg;
 
 		/* ---- Media ---- */
 		$mg = array();
-		if ( $images['total'] === 0 ) {
+		if ( 0 === $images['total'] ) {
 			$mg[] = self::chk( 'good', 'Image alt text', 'No inline images to caption.' );
 		} elseif ( $images['with_alt'] === $images['total'] ) {
 			$mg[] = self::chk( 'good', 'Image alt text', 'All ' . $images['total'] . ' images have alt text.' );
 		} else {
-			$status         = $images['with_alt'] === 0 ? 'fail' : 'warn';
+			$status         = 0 === $images['with_alt'] ? 'fail' : 'warn';
 			$detail         = $images['with_alt'] . ' of ' . $images['total'] . ' images have alt text.';
 			$check          = self::chk( $status, 'Image alt text', $detail, 'media' );
 			$check['files'] = $images['missing']; // searchable filenames for the copy buttons
 			$mg[]           = $check;
 		}
-		$G['Media'] = $mg;
+		$groups['Media'] = $mg;
 
 		/* ---- Links ---- */
 		$lg                  = array();
@@ -233,17 +233,17 @@ class BSM_Health {
 			: self::chk( 'fail', 'Internal links out', 'No internal links — link to related pages.' );
 		$link_check['links'] = $int_list;
 		$lg[]                = $link_check;
-		$G['Links']          = $lg;
+		$groups['Links']     = $lg;
 
 		// ---- Score + flat issue list ----
 		$sum    = 0;
 		$n      = 0;
 		$issues = array();
-		foreach ( $G as $group => $checks ) {
+		foreach ( $groups as $group => $checks ) {
 			foreach ( $checks as $c ) {
-				$sum += ( $c['status'] === 'good' ) ? 1 : ( ( $c['status'] === 'warn' ) ? 0.5 : 0 );
+				$sum += ( 'good' === $c['status'] ) ? 1 : ( ( 'warn' === $c['status'] ) ? 0.5 : 0 );
 				++$n;
-				if ( $c['status'] !== 'good' ) {
+				if ( 'good' !== $c['status'] ) {
 					$issues[] = $c['label'];
 				}
 			}
@@ -252,7 +252,7 @@ class BSM_Health {
 
 		return array(
 			'score'  => $score,
-			'groups' => $G,
+			'groups' => $groups,
 			'issues' => $issues,
 		);
 	}
@@ -305,7 +305,7 @@ class BSM_Health {
 		if ( preg_match_all( '/<img\b[^>]*>/i', $content, $m ) ) {
 			foreach ( $m[0] as $img ) {
 				++$total;
-				$has_inline = preg_match( '/\balt\s*=\s*("|\')(.*?)\1/i', $img, $a ) && trim( $a[2] ) !== '';
+				$has_inline = preg_match( '/\balt\s*=\s*("|\')(.*?)\1/i', $img, $a ) && '' !== trim( $a[2] );
 				$src        = '';
 				if ( preg_match( '/\bsrc\s*=\s*("|\')(.*?)\1/i', $img, $s ) ) {
 					$src = $s[2];
@@ -316,14 +316,14 @@ class BSM_Health {
 				}
 				// No inline alt — credit the media-library alt (what Lookit Media
 				// Master writes to) if we can resolve the image to an attachment.
-				if ( self::library_alt( $img, $src ) !== '' ) {
+				if ( '' !== self::library_alt( $img, $src ) ) {
 					++$with_alt;
 					continue;
 				}
 				// Genuinely missing — record a searchable filename for the copy buttons.
-				if ( $src !== '' ) {
+				if ( '' !== $src ) {
 					$name = self::filename_for_search( $src );
-					if ( $name !== '' ) {
+					if ( '' !== $name ) {
 						$missing[] = $name; }
 				}
 			}
@@ -342,7 +342,7 @@ class BSM_Health {
 			return (int) $m[1];
 		}
 		// 2) URL → ID (handles resized -WxH by stripping to the base URL).
-		if ( $src !== '' ) {
+		if ( '' !== $src ) {
 			$url  = (string) preg_replace( '/[?#].*$/', '', trim( $src ) );
 			$base = (string) preg_replace( '/-\d+x\d+(?=\.[a-z0-9]+$)/i', '', $url );
 			$id   = attachment_url_to_postid( $base );
@@ -355,7 +355,7 @@ class BSM_Health {
 		}
 		// 3) Filename lookup against the media library (robust to scoped/CDN URLs).
 		$file = self::filename_for_search( $src );
-		if ( $file !== '' ) {
+		if ( '' !== $file ) {
 			$found = get_posts(
 				array(
 					'post_type'     => 'attachment',
@@ -414,14 +414,14 @@ class BSM_Health {
 		if ( preg_match_all( '/<a\b[^>]*?href\s*=\s*("|\')(.*?)\1[^>]*>(.*?)<\/a>/is', $content, $m, PREG_SET_ORDER ) ) {
 			foreach ( $m as $a ) {
 				$href = trim( $a[2] );
-				if ( $href === '' || $href[0] === '#' ) {
+				if ( '' === $href || '#' === $href[0] ) {
 					continue; }
 				$h = wp_parse_url( $href, PHP_URL_HOST );
-				if ( $h === null || $h === $host ) {
+				if ( null === $h || $h === $host ) {
 					$text  = trim( wp_strip_all_tags( $a[3] ) );
 					$out[] = array(
 						'href' => $href,
-						'text' => $text !== '' ? $text : $href,
+						'text' => '' !== $text ? $text : $href,
 					);
 				}
 			}
@@ -434,7 +434,7 @@ class BSM_Health {
 	// ─────────────────────────────────────────────────────────────────────────
 
 	private static function render_pages( array $all_types, string $htype, int $paged ): void {
-		$types    = $htype === 'all' ? array_keys( $all_types ) : array( $htype );
+		$types    = 'all' === $htype ? array_keys( $all_types ) : array( $htype );
 		$dupe_ids = bsm_duplicate_keyphrase_post_ids( $types );
 
 		$q = new WP_Query(
@@ -501,16 +501,16 @@ class BSM_Health {
 			$a        = self::audit_post( $p, $dupe_ids );
 			$content  = (string) $p->post_content;
 			$plain    = trim( wp_strip_all_tags( strip_shortcodes( $content ) ) );
-			$words    = $plain === '' ? 0 : count( preg_split( '/\s+/u', $plain ) );
+			$words    = '' === $plain ? 0 : count( preg_split( '/\s+/u', $plain ) );
 			$meta     = get_post_meta( $p->ID, BSM_META_DESC, true );
-			$title    = get_post_meta( $p->ID, BSM_META_TITLE, true ) ?: get_the_title( $p );
+			$title    = get_post_meta( $p->ID, BSM_META_TITLE, true ) ? get_post_meta( $p->ID, BSM_META_TITLE, true ) : get_the_title( $p );
 			$tlen     = mb_strlen( trim( preg_replace( '/%%[^%]+%%/', '', (string) $title ) ) );
 			$imgs     = self::images( $content );
 			$links    = self::internal_link_count( $content );
 			$type_obj = $all_types[ $p->post_type ] ?? null;
 			$dot      = $a['score'] >= 80 ? 'good' : ( $a['score'] >= 50 ? 'warn' : 'fail' );
 			$icount   = count( $a['issues'] );
-			$ibadge   = $icount === 0 ? 'z' : ( $icount <= 2 ? 'm' : '' );
+			$ibadge   = 0 === $icount ? 'z' : ( $icount <= 2 ? 'm' : '' );
 			$detail   = self::base_url( array( 'audit_post' => $p->ID ) );
 
 			echo '<tr data-href="' . esc_url( $detail ) . '">';
@@ -520,7 +520,7 @@ class BSM_Health {
 			echo '<td class="' . ( $words < self::WORDS_THIN ? 'fail' : ( $words < self::WORDS_OK ? 'warn' : 'good' ) ) . '">' . esc_html( (string) $words ) . '</td>';
 			echo '<td class="' . ( $meta ? 'good' : 'fail' ) . '">' . ( $meta ? 'OK' : 'Missing' ) . '</td>';
 			echo '<td class="' . ( $tlen <= self::TITLE_OK ? 'good' : ( $tlen <= self::TITLE_MAX ? 'warn' : 'fail' ) ) . '">' . esc_html( (string) $tlen ) . '</td>';
-			echo '<td class="' . ( $imgs['total'] === 0 || $imgs['with_alt'] === $imgs['total'] ? 'good' : ( $imgs['with_alt'] === 0 ? 'fail' : 'warn' ) ) . '">' . esc_html( $imgs['with_alt'] . '/' . $imgs['total'] ) . '</td>';
+			echo '<td class="' . ( 0 === $imgs['total'] || $imgs['with_alt'] === $imgs['total'] ? 'good' : ( 0 === $imgs['with_alt'] ? 'fail' : 'warn' ) ) . '">' . esc_html( $imgs['with_alt'] . '/' . $imgs['total'] ) . '</td>';
 			echo '<td class="' . ( $links > 0 ? 'good' : 'fail' ) . '">' . esc_html( (string) $links ) . '</td>';
 			echo '<td><span class="bsm-h-ib ' . esc_attr( $ibadge ) . '">' . esc_html( (string) $icount ) . '</span></td>';
 			echo '<td><a class="bsm-h-view" href="' . esc_url( $detail ) . '">View →</a></td>';
@@ -609,11 +609,11 @@ class BSM_Health {
 
 		$all_types = bsm_get_post_types();
 		$htype     = isset( $_GET['htype'] ) ? sanitize_key( wp_unslash( $_GET['htype'] ) ) : 'all';
-		if ( $htype !== 'all' && ! isset( $all_types[ $htype ] ) ) {
+		if ( 'all' !== $htype && ! isset( $all_types[ $htype ] ) ) {
 			$htype = 'all';
 		}
 		$format   = isset( $_GET['format'] ) ? sanitize_key( wp_unslash( $_GET['format'] ) ) : 'csv';
-		$types    = $htype === 'all' ? array_keys( $all_types ) : array( $htype );
+		$types    = 'all' === $htype ? array_keys( $all_types ) : array( $htype );
 		$dupe_ids = bsm_duplicate_keyphrase_post_ids( $types );
 
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -656,7 +656,7 @@ class BSM_Health {
 				array(
 					'post_type'      => $types,
 					'post_status'    => 'publish',
-					'posts_per_page' => 300,
+					'posts_per_page' => 300, // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- export batches published posts.
 					'paged'          => $paged,
 					'orderby'        => 'type title',
 					'order'          => 'ASC',
@@ -670,9 +670,9 @@ class BSM_Health {
 				$a        = self::audit_post( $p, $dupe_ids );
 				$content  = (string) $p->post_content;
 				$plain    = trim( wp_strip_all_tags( strip_shortcodes( $content ) ) );
-				$words    = $plain === '' ? 0 : count( preg_split( '/\s+/u', $plain ) );
+				$words    = '' === $plain ? 0 : count( preg_split( '/\s+/u', $plain ) );
 				$meta     = get_post_meta( $p->ID, BSM_META_DESC, true );
-				$title    = get_post_meta( $p->ID, BSM_META_TITLE, true ) ?: get_the_title( $p );
+				$title    = get_post_meta( $p->ID, BSM_META_TITLE, true ) ? get_post_meta( $p->ID, BSM_META_TITLE, true ) : get_the_title( $p );
 				$tlen     = mb_strlen( trim( preg_replace( '/%%[^%]+%%/', '', (string) $title ) ) );
 				$imgs     = self::images( $content );
 				$type_obj = $all_types[ $p->post_type ] ?? null;
@@ -925,15 +925,15 @@ class BSM_Health {
 		echo '<div class="bsm-h-edit-body" data-post="' . (int) $post->ID . '">';
 
 		echo '<div class="bsm-h-field"><div class="lbl">Focus keyphrase</div>';
-		echo '<div class="cur">Current: <span>' . ( $kp_str !== '' ? esc_html( $kp_str ) : '— none —' ) . '</span></div>';
+		echo '<div class="cur">Current: <span>' . ( '' !== $kp_str ? esc_html( $kp_str ) : '— none —' ) . '</span></div>';
 		echo '<div class="row"><input type="text" class="bsm-h-f-kw" value="' . esc_attr( $kp_str ) . '"><button type="button" class="button bsm-h-fill" data-kind="keyphrase" data-target="bsm-h-f-kw">✦ Fill with AI</button></div></div>';
 
 		echo '<div class="bsm-h-field"><div class="lbl">SEO title</div>';
-		echo '<div class="cur">Current: <span>' . ( $cur_title !== '' ? esc_html( $cur_title ) : '— none —' ) . '</span></div>';
+		echo '<div class="cur">Current: <span>' . ( '' !== $cur_title ? esc_html( $cur_title ) : '— none —' ) . '</span></div>';
 		echo '<div class="row"><input type="text" class="bsm-h-f-title" value="' . esc_attr( $cur_title ) . '"><button type="button" class="button bsm-h-fill" data-kind="title" data-target="bsm-h-f-title">✦ Fill with AI</button></div></div>';
 
 		echo '<div class="bsm-h-field"><div class="lbl">Meta description</div>';
-		echo '<div class="cur">Current: <span>' . ( $cur_desc !== '' ? esc_html( $cur_desc ) : '— none —' ) . '</span></div>';
+		echo '<div class="cur">Current: <span>' . ( '' !== $cur_desc ? esc_html( $cur_desc ) : '— none —' ) . '</span></div>';
 		echo '<div class="row"><textarea class="bsm-h-f-desc" rows="2">' . esc_textarea( $cur_desc ) . '</textarea><button type="button" class="button bsm-h-fill" data-kind="metadesc" data-target="bsm-h-f-desc">✦ Fill with AI</button></div></div>';
 
 		echo '<div class="bsm-h-edit-actions"><button type="button" class="button button-primary bsm-h-save">Save to Yoast</button><span class="bsm-h-save-msg"></span></div>';
@@ -950,7 +950,7 @@ class BSM_Health {
 			echo '<div class="bsm-h-grp"><div class="gh"><span class="gn">' . esc_html( $group ) . '</span>';
 			echo '<span class="gc">' . (int) $counts['good'] . ' pass · ' . (int) $counts['warn'] . ' warn · ' . (int) $counts['fail'] . ' fail</span></div>';
 			foreach ( $checks as $c ) {
-				$icon = $c['status'] === 'good' ? '✓' : ( $c['status'] === 'warn' ? '!' : '✕' );
+				$icon = 'good' === $c['status'] ? '✓' : ( 'warn' === $c['status'] ? '!' : '✕' );
 				echo '<div class="chk"><div class="ico ' . esc_attr( $c['status'] ) . '">' . esc_html( $icon ) . '</div><div>';
 				echo '<div class="ct">' . esc_html( $c['label'] ) . '</div>';
 				echo '<div class="cd">' . esc_html( $c['detail'] ) . '</div>';
@@ -971,7 +971,7 @@ class BSM_Health {
 					}
 					echo '</div>';
 				}
-				if ( ! empty( $c['bridge'] ) && $c['bridge'] === 'media' ) {
+				if ( ! empty( $c['bridge'] ) && 'media' === $c['bridge'] ) {
 					// Deep-link into Lookit Media Master's Alt Text Manager, but only
 					// if that plugin is installed (its admin page is registered).
 					$mm_url = menu_page_url( 'lookit-media-master', false );
@@ -983,7 +983,7 @@ class BSM_Health {
 					}
 				}
 				if ( ! empty( $c['links'] ) ) {
-					echo '<details class="bsm-h-links"><summary>Show ' . count( $c['links'] ) . ' link' . ( count( $c['links'] ) === 1 ? '' : 's' ) . '</summary><ul>';
+					echo '<details class="bsm-h-links"><summary>Show ' . count( $c['links'] ) . ' link' . ( 1 === count( $c['links'] ) ? '' : 's' ) . '</summary><ul>';
 					foreach ( $c['links'] as $lnk ) {
 						echo '<li><a href="' . esc_url( $lnk['href'] ) . '" target="_blank" rel="noopener">' . esc_html( $lnk['text'] ) . '</a><span class="u">' . esc_html( $lnk['href'] ) . '</span></li>';
 					}
@@ -1092,7 +1092,7 @@ class BSM_Health {
 		);
 		$cfg       = $map[ $kind ] ?? $map['metadesc'];
 		$keyphrase = (string) get_post_meta( $post->ID, BSM_META_KW, true );
-		$word_goal = 'content' === $cfg['task'] ? max( 100, min( 2000, $words ?: 600 ) ) : 0;
+		$word_goal = 'content' === $cfg['task'] ? max( 100, min( 2000, $words ? $words : 600 ) ) : 0;
 		$result    = bsm_ai_call_webhook( $cfg['task'], $post, $cfg['count'], $keyphrase, $word_goal );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );

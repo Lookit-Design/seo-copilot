@@ -94,7 +94,7 @@ class ASY_Settings {
 
 	public function enqueue_assets( $hook ) {
 		// Settings page: full JS + CSS
-		if ( strpos( $hook, 'lookit-seo-copilot' ) !== false ) {
+		if ( false !== strpos( $hook, 'lookit-seo-copilot' ) ) {
 			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
 			wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), ASY_VERSION, true );
 			wp_localize_script(
@@ -419,7 +419,7 @@ class ASY_Settings {
 		$types  = get_post_types( array( 'public' => true ), 'objects' );
 		$result = array();
 		foreach ( $types as $slug => $obj ) {
-			$result[ $slug ] = $obj->labels->singular_name ?: $slug;
+			$result[ $slug ] = $obj->labels->singular_name ? $obj->labels->singular_name : $slug;
 		}
 		return $result;
 	}
