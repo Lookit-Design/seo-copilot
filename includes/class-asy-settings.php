@@ -42,6 +42,27 @@ class ASY_Settings {
 				'sanitize_callback' => array( $this, 'sanitize_templates' ),
 			)
 		);
+		$this->maybe_disable_autoload();
+	}
+
+	public function maybe_disable_autoload() {
+		$alloptions = wp_load_alloptions();
+		if ( ! isset( $alloptions['asy_openrouter_api_key'] ) ) {
+			return;
+		}
+		$value = get_option( 'asy_openrouter_api_key' );
+		delete_option( 'asy_openrouter_api_key' );
+		add_option( 'asy_openrouter_api_key', $value, '', false );
+	}
+
+	public function store_openrouter_api_key( $key ) {
+		$key = trim( sanitize_text_field( $key ) );
+		if ( '' === $key ) {
+			return (string) get_option( 'asy_openrouter_api_key', '' );
+		}
+		update_option( 'asy_openrouter_api_key', $key );
+		$this->maybe_disable_autoload();
+		return $key;
 	}
 
 	/**
@@ -190,11 +211,12 @@ class ASY_Settings {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( 'Permission denied.' ); }
 
-		$key = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
-		if ( empty( $key ) ) {
-			wp_send_json_error( 'Empty key.' ); }
+		$key    = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
+		$stored = $this->store_openrouter_api_key( $key );
+		if ( '' === $stored ) {
+			wp_send_json_error( 'Empty key.' );
+		}
 
-		update_option( 'asy_openrouter_api_key', $key );
 		wp_send_json_success();
 	}
 
