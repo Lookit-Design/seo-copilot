@@ -172,7 +172,7 @@ function bsm_sanitize_templates( $input ): array {
 	foreach ( $input as $item ) {
 		$label    = sanitize_text_field( $item['label'] ?? '' );
 		$template = sanitize_textarea_field( $item['template'] ?? '' );
-		if ( $label !== '' && $template !== '' ) {
+		if ( '' !== $label && '' !== $template ) {
 			$out[] = array(
 				'label'    => $label,
 				'template' => $template,
@@ -273,7 +273,7 @@ function bsm_resolve_template( string $template, WP_Post $post ): string {
 		'{title}'       => $post->post_title,
 		'{site}'        => get_bloginfo( 'name' ),
 		'{sep}'         => '–',
-		'{keyphrase}'   => (string) get_post_meta( $post->ID, BSM_META_KW, true ) ?: $post->post_title,
+		'{keyphrase}'   => (string) get_post_meta( $post->ID, BSM_META_KW, true ) ? (string) get_post_meta( $post->ID, BSM_META_KW, true ) : $post->post_title,
 		'{excerpt}'     => ASY_Processor::get_excerpt( $post ),
 		'{category}'    => ASY_Processor::get_primary_term( $post ),
 		'{type}'        => $type_obj ? $type_obj->labels->singular_name : $post->post_type,
@@ -385,7 +385,7 @@ function bsm_ajax_search_posts(): void {
 		$obj   = get_post_type_object( $p->post_type );
 		$out[] = array(
 			'id'    => $p->ID,
-			'title' => $p->post_title !== '' ? $p->post_title : '(no title)',
+			'title' => '' !== $p->post_title ? $p->post_title : '(no title)',
 			'type'  => $obj ? $obj->labels->singular_name : $p->post_type,
 			'slug'  => $p->post_name,
 		);
@@ -403,7 +403,7 @@ function bsm_picker_types(): array {
 		if ( 'attachment' === $slug ) {
 			continue;
 		}
-		$out[ $slug ] = $obj->labels->name ?: $slug;
+		$out[ $slug ] = $obj->labels->name ? $obj->labels->name : $slug;
 	}
 	return $out;
 }
@@ -432,7 +432,7 @@ function bsm_ajax_get_meta_fields(): void {
 					if ( $name ) {
 						$fields[] = array(
 							'key'         => $name,
-							'label'       => ( $title ?: $name ) . ' (' . $box_name . ')',
+							'label'       => ( $title ? $title : $name ) . ' (' . $box_name . ')',
 							'source'      => 'JetEngine',
 							'type'        => $type,
 							'placeholder' => '{meta:' . $name . '}',
@@ -442,7 +442,8 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		/* silent */ }
+		unset( $e );
+	}
 
 	// ── 2. ACF fields ──
 	try {
@@ -458,7 +459,7 @@ function bsm_ajax_get_meta_fields(): void {
 					if ( $name ) {
 						$fields[] = array(
 							'key'         => $name,
-							'label'       => ( $label ?: $name ) . ' (' . $gname . ')',
+							'label'       => ( $label ? $label : $name ) . ' (' . $gname . ')',
 							'source'      => 'ACF',
 							'type'        => $type,
 							'placeholder' => '{meta:' . $name . '}',
@@ -468,7 +469,8 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		/* silent */ }
+		unset( $e );
+	}
 
 	// ── 3. Meta Box / RWMB ──
 	try {
@@ -483,7 +485,7 @@ function bsm_ajax_get_meta_fields(): void {
 						if ( $name ) {
 							$fields[] = array(
 								'key'         => $name,
-								'label'       => ( $label ?: $name ) . ' (Meta Box)',
+								'label'       => ( $label ? $label : $name ) . ' (Meta Box)',
 								'source'      => 'MetaBox',
 								'type'        => $type,
 								'placeholder' => '{meta:' . $name . '}',
@@ -494,7 +496,8 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		/* silent */ }
+		unset( $e );
+	}
 
 	// ── 4. WordPress core + Yoast placeholders (always shown) ──
 	$core = array(
@@ -568,13 +571,13 @@ function bsm_ajax_get_meta_fields(): void {
 			// Skip private/internal keys
 			$skip = false;
 			foreach ( $skip_prefixes as $prefix ) {
-				if ( strpos( $mk, $prefix ) === 0 ) {
+				if ( 0 === strpos( $mk, $prefix ) ) {
 					$skip = true;
 					break; }
 			}
 			if ( ! $skip ) {
 				foreach ( $skip_contains as $needle ) {
-					if ( strpos( strtolower( $mk ), $needle ) !== false ) {
+					if ( false !== strpos( strtolower( $mk ), $needle ) ) {
 						$skip = true;
 						break; }
 				}
@@ -593,7 +596,8 @@ function bsm_ajax_get_meta_fields(): void {
 			$already_keys[] = $mk;
 		}
 	} catch ( \Throwable $e ) {
-		/* silent */ }
+		unset( $e );
+	}
 
 	wp_send_json_success(
 		array(
@@ -1607,7 +1611,7 @@ function bsm_ajax_ai_fill() {
 		}
 		$code = wp_remote_retrieve_response_code( $resp );
 		$raw  = wp_remote_retrieve_body( $resp );
-		if ( $code !== 200 ) {
+		if ( 200 !== $code ) {
 			$errors[ $id ] = "HTTP {$code}";
 			continue;
 		}
@@ -1617,7 +1621,7 @@ function bsm_ajax_ai_fill() {
 		$outer = json_decode( $raw, true );
 		$text  = ( is_array( $outer ) && isset( $outer['text'] ) ) ? trim( $outer['text'] ) : trim( $raw );
 
-		if ( $task === 'keyphrase' ) {
+		if ( 'keyphrase' === $task ) {
 			$t   = trim( preg_replace( '/```(?:json)?/i', '', $text ) );
 			$t   = trim( str_replace( '```', '', $t ) );
 			$arr = json_decode( $t, true );
@@ -1706,7 +1710,7 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 		return $resp;
 	}
 	$code = (int) wp_remote_retrieve_response_code( $resp );
-	if ( $code !== 200 ) {
+	if ( 200 !== $code ) {
 		return new WP_Error( 'http', "Webhook HTTP {$code}" );
 	}
 	$raw   = wp_remote_retrieve_body( $resp );
@@ -1955,7 +1959,7 @@ function bsm_ajax_get_desc_data() {
 		foreach ( (array) $all_meta as $mk => $mv ) {
 			// Only include scalar, human-readable meta values
 			$val = is_array( $mv ) ? $mv[0] : $mv;
-			if ( is_string( $val ) && strlen( $val ) < 300 && substr( $mk, 0, 1 ) !== '_' ) {
+			if ( is_string( $val ) && strlen( $val ) < 300 && '_' !== substr( $mk, 0, 1 ) ) {
 				$flat_meta[ $mk ] = $val;
 			}
 		}
@@ -2045,7 +2049,7 @@ function bsm_ajax_save_all() {
 function bsm_handle_save() {
 	// Lightweight guard before the nonce check below; only compares a routing value, changes nothing.
     // phpcs:ignore WordPress.Security.NonceVerification.Missing
-	if ( ! isset( $_POST['bsm_action'] ) || sanitize_key( wp_unslash( $_POST['bsm_action'] ) ) !== 'save_all' ) {
+	if ( ! isset( $_POST['bsm_action'] ) || 'save_all' !== sanitize_key( wp_unslash( $_POST['bsm_action'] ) ) ) {
 		return;
 	}
 	if ( ! check_admin_referer( BSM_NONCE ) ) {
@@ -2076,7 +2080,8 @@ function bsm_handle_save() {
 		);
 	}
 
-	$saved = $errors = 0;
+	$saved  = 0;
+	$errors = 0;
 	foreach ( $page_ids as $pid ) {
 		$pid = absint( $pid );
 		$kw  = sanitize_text_field( wp_unslash( $keyphrases[ $pid ] ?? '' ) );
@@ -2109,35 +2114,36 @@ function bsm_handle_save() {
 // ─── Write meta + sync Yoast indexables ──────────────────────────────────────
 
 function bsm_update_fields( int $post_id, string $keyphrase, string $metadesc, string $title = '' ): void {
-	if ( $keyphrase !== '' ) {
+	if ( '' !== $keyphrase ) {
 		update_post_meta( $post_id, BSM_META_KW, $keyphrase );
 	}
-	if ( $metadesc !== '' ) {
+	if ( '' !== $metadesc ) {
 		update_post_meta( $post_id, BSM_META_DESC, $metadesc );
 	}
-	if ( $title !== '' ) {
+	if ( '' !== $title ) {
 		update_post_meta( $post_id, BSM_META_TITLE, $title );
 	}
-	if ( ( $keyphrase !== '' || $metadesc !== '' || $title !== '' ) && class_exists( '\Yoast\WP\SEO\Models\Indexable' ) ) {
+	if ( ( '' !== $keyphrase || '' !== $metadesc || '' !== $title ) && class_exists( '\Yoast\WP\SEO\Models\Indexable' ) ) {
 		try {
 			$repo = YoastSEO()->classes->get( \Yoast\WP\SEO\Repositories\Indexable_Repository::class );
 			if ( $repo ) {
 				$idx = $repo->find_by_id_and_type( $post_id, 'post', false );
 				if ( $idx ) {
-					if ( $keyphrase !== '' ) {
+					if ( '' !== $keyphrase ) {
 						$idx->primary_focus_keyword = $keyphrase;
 					}
-					if ( $metadesc !== '' ) {
+					if ( '' !== $metadesc ) {
 						$idx->description = $metadesc;
 					}
-					if ( $title !== '' ) {
+					if ( '' !== $title ) {
 						$idx->title = $title;
 					}
 					$idx->save();
 				}
 			}
 		} catch ( \Exception $e ) {
-			/* silent */ }
+			unset( $e );
+		}
 	}
 }
 
@@ -2180,7 +2186,7 @@ function bsm_render_tabs( string $active ): void {
 	<div class="bsm-tabs">
 		<?php
 		foreach ( $tabs as $slug => $label ) :
-			$url = $slug === 'bulk' ? $base : add_query_arg( 'tab', $slug, $base );
+			$url = 'bulk' === $slug ? $base : add_query_arg( 'tab', $slug, $base );
 			?>
 			<a href="<?php echo esc_url( $url ); ?>"
 				class="bsm-tab<?php echo $active === $slug ? ' bsm-tab-active' : ''; ?>">
@@ -2200,7 +2206,7 @@ function bsm_enqueue_assets( $hook ): void {
 		return;
 	}
 
-	if ( strpos( (string) $hook, 'lookit-bulk-seo' ) === false ) {
+	if ( false === strpos( (string) $hook, 'lookit-bulk-seo' ) ) {
 		return;
 	}
 	wp_enqueue_style( 'google-dm-sans', 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap', array(), BSM_VERSION );
@@ -2208,7 +2214,7 @@ function bsm_enqueue_assets( $hook ): void {
 	// Settings tab only: sidebar layout, preview rail and post picker (3.27.0).
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab switch, no state change.
 	$bsm_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
-	if ( 'settings' === $bsm_tab || strpos( (string) $hook, 'lookit-bulk-seo-settings' ) !== false ) {
+	if ( 'settings' === $bsm_tab || false !== strpos( (string) $hook, 'lookit-bulk-seo-settings' ) ) {
 		// Delivered inline rather than as a separate file request. On installs
 		// behind an aggressive CDN or WAF, a stale assets/settings.css was being
 		// served and the Settings page rendered at the old, larger type scale.
@@ -2375,7 +2381,7 @@ function bsm_enqueue_assets( $hook ): void {
 	// On the Auto SEO Manager tab, load that engine's admin assets.
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab switch, no state change.
 	$tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'bulk';
-	if ( $tab === 'auto' && current_user_can( 'manage_options' ) ) {
+	if ( 'auto' === $tab && current_user_can( 'manage_options' ) ) {
 		wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
 		wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), ASY_VERSION, true );
 		wp_localize_script(
@@ -2451,13 +2457,13 @@ function bsm_render_page(): void {
 	// Route to the requested tab.
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab routing, no state change.
 	$tab = sanitize_key( $_GET['tab'] ?? 'bulk' );
-	if ( $tab === 'auto' && current_user_can( 'manage_options' ) ) {
+	if ( 'auto' === $tab && current_user_can( 'manage_options' ) ) {
 		bsm_render_auto_section();
 		return; }
-	if ( $tab === 'health' ) {
+	if ( 'health' === $tab ) {
 		BSM_Health::render();
 		return; }
-	if ( $tab === 'settings' && current_user_can( 'manage_options' ) ) {
+	if ( 'settings' === $tab && current_user_can( 'manage_options' ) ) {
 		bsm_render_settings();
 		return; }
 
@@ -2483,12 +2489,12 @@ function bsm_render_page(): void {
 	$kw_templates    = bsm_get_keyphrase_templates();
 	$title_templates = bsm_get_title_templates();
 
-	if ( $ftype !== 'all' && ! isset( $all_types[ $ftype ] ) ) {
+	if ( 'all' !== $ftype && ! isset( $all_types[ $ftype ] ) ) {
 		$ftype = 'all';
 	}
 
 	$qargs = array(
-		'post_type'      => $ftype === 'all' ? array_keys( $all_types ) : array( $ftype ),
+		'post_type'      => 'all' === $ftype ? array_keys( $all_types ) : array( $ftype ),
 		'post_status'    => $fpost,
 		'posts_per_page' => BSM_PER_PAGE,
 		'paged'          => $paged,
@@ -2501,7 +2507,7 @@ function bsm_render_page(): void {
 	// Filtering an admin list by whether Yoast keyphrase/meta-description values exist requires
 	// meta_query. This is an opt-in admin screen, not a front-end query, so the cost is acceptable.
     // phpcs:disable WordPress.DB.SlowDBQuery
-	if ( $fstatus === 'set' ) {
+	if ( 'set' === $fstatus ) {
 		$qargs['meta_query'] = array(
 			array(
 				'key'     => BSM_META_KW,
@@ -2509,7 +2515,7 @@ function bsm_render_page(): void {
 				'compare' => '!=',
 			),
 		);
-	} elseif ( $fstatus === 'empty' ) {
+	} elseif ( 'empty' === $fstatus ) {
 		$qargs['meta_query'] = array(
 			'relation' => 'OR',
 			array(
@@ -2522,16 +2528,16 @@ function bsm_render_page(): void {
 				'compare' => '=',
 			),
 		);
-	} elseif ( $fstatus === 'duplicate' ) {
+	} elseif ( 'duplicate' === $fstatus ) {
 		$dup_ids           = bsm_duplicate_keyphrase_post_ids(
-			$ftype === 'all' ? array_keys( $all_types ) : array( $ftype )
+			'all' === $ftype ? array_keys( $all_types ) : array( $ftype )
 		);
 		$qargs['post__in'] = ! empty( $dup_ids ) ? $dup_ids : array( 0 );
 		// Group duplicates together so matching keyphrases sit next to each other.
 		$qargs['meta_key'] = BSM_META_KW;
 		$qargs['orderby']  = 'meta_value title';
 	}
-	if ( $fdesc === 'set' ) {
+	if ( 'set' === $fdesc ) {
 		$desc_clause = array(
 			array(
 				'key'     => BSM_META_DESC,
@@ -2539,7 +2545,7 @@ function bsm_render_page(): void {
 				'compare' => '!=',
 			),
 		);
-	} elseif ( $fdesc === 'empty' ) {
+	} elseif ( 'empty' === $fdesc ) {
 		$desc_clause = array(
 			'relation' => 'OR',
 			array(
@@ -2657,7 +2663,7 @@ function bsm_render_page(): void {
 					</select>
 					<input type="search" name="s" id="bsm-search" placeholder="Search titles…" value="<?php echo esc_attr( $search ); ?>">
 					<?php submit_button( 'Filter', 'secondary', '', false ); ?>
-					<?php if ( $search || $ftype !== 'all' || $fstatus !== 'all' || $fdesc !== 'all' || $fpost !== 'publish' ) : ?>
+					<?php if ( $search || 'all' !== $ftype || 'all' !== $fstatus || 'all' !== $fdesc || 'publish' !== $fpost ) : ?>
 						<a href="<?php echo esc_url( admin_url( 'admin.php?page=lookit-bulk-seo' ) ); ?>" class="button">Reset</a>
 					<?php endif; ?>
 				</div>
@@ -2814,13 +2820,13 @@ function bsm_render_page(): void {
 					$cur_kw    = (string) get_post_meta( $post->ID, BSM_META_KW, true );
 					$cur_desc  = (string) get_post_meta( $post->ID, BSM_META_DESC, true );
 					$cur_title = (string) get_post_meta( $post->ID, BSM_META_TITLE, true );
-					$has_title = $cur_title !== '';
+					$has_title = '' !== $cur_title;
 					// Yoast titles are templates (e.g. %%title%% %%sep%% %%sitename%%); render them for display.
 					$title_display = $has_title
 						? ( function_exists( 'wpseo_replace_vars' ) ? wpseo_replace_vars( $cur_title, $post ) : $cur_title )
 						: '';
-					$has_kw        = $cur_kw !== '';
-					$has_desc      = $cur_desc !== '';
+					$has_kw        = '' !== $cur_kw;
+					$has_desc      = '' !== $cur_desc;
 					$dlen          = mb_strlen( $cur_desc );
 					$edit_url      = get_edit_post_link( $post->ID );
 					$tlabel        = $all_types[ $post->post_type ]->label ?? ucfirst( $post->post_type );
@@ -2832,10 +2838,10 @@ function bsm_render_page(): void {
 						<td><input type="checkbox" class="bsm-row-check" value="<?php echo esc_attr( $post->ID ); ?>"></td>
 						<td>
 							<a href="<?php echo esc_url( $edit_url ); ?>" target="_blank" style="font-weight:500;">
-								<?php echo esc_html( $post->post_title ?: '(no title)' ); ?>
+								<?php echo esc_html( $post->post_title ? $post->post_title : '(no title)' ); ?>
 							</a>
 							<?php
-							if ( $post->post_status !== 'publish' ) :
+							if ( 'publish' !== $post->post_status ) :
 								$st_obj = get_post_status_object( $post->post_status );
 								$st_lbl = $st_obj ? $st_obj->label : ucfirst( $post->post_status );
 								?>

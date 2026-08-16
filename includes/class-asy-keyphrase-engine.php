@@ -59,7 +59,7 @@ class ASY_Keyphrase_Engine {
 		// word with the focus is dropped, so related terms stay complementary
 		// rather than echoing the main keyphrase.
 		$focus_kw = (string) get_post_meta( $post->ID, '_yoast_wpseo_focuskw', true );
-		if ( $focus_kw === '' ) {
+		if ( '' === $focus_kw ) {
 			$focus_kw = sanitize_text_field( $post->post_title );
 		}
 		$focus_words = self::significant_words( $focus_kw );
@@ -69,7 +69,7 @@ class ASY_Keyphrase_Engine {
 			$all,
 			function ( $kp ) use ( $focus_words, $focus_full ) {
 				$kp_l = strtolower( trim( $kp ) );
-				if ( $kp_l === '' || $kp_l === $focus_full ) {
+				if ( '' === $kp_l || $kp_l === $focus_full ) {
 					return false;
 				}
 				foreach ( self::significant_words( $kp ) as $w => $_ ) {
@@ -186,8 +186,8 @@ class ASY_Keyphrase_Engine {
 		// Filter: minimum 2 occurrences OR appears in title/heading
 		$scored = array();
 		foreach ( $ngrams as $phrase => $freq ) {
-			$in_title   = ( strpos( $title, $phrase ) !== false );
-			$in_heading = ( strpos( $heading_text, $phrase ) !== false );
+			$in_title   = ( false !== strpos( $title, $phrase ) );
+			$in_heading = ( false !== strpos( $heading_text, $phrase ) );
 
 			if ( $freq < 2 && ! $in_title && ! $in_heading ) {
 				continue;
@@ -333,8 +333,12 @@ class ASY_Keyphrase_Engine {
 		}
 
 		// Sliding bigrams from title words
-		$phrases = array();
-		for ( $i = 0; $i < count( $words ) - 1 && count( $phrases ) < $count; $i++ ) {
+		$phrases    = array();
+		$word_count = count( $words );
+		for ( $i = 0; $i < $word_count - 1; $i++ ) {
+			if ( count( $phrases ) >= $count ) {
+				break;
+			}
 			$phrases[] = ucwords( $words[ $i ] . ' ' . $words[ $i + 1 ] );
 		}
 		return $phrases;
@@ -385,7 +389,7 @@ class ASY_Keyphrase_Engine {
 			if ( empty( $word ) ) {
 				continue;
 			}
-			if ( strpos( $word, ' ' ) !== false ) {
+			if ( false !== strpos( $word, ' ' ) ) {
 				$multi[] = array(
 					'word'  => $word,
 					'score' => $score * 1.5,
@@ -455,7 +459,7 @@ class ASY_Keyphrase_Engine {
 		}
 
 		$code = wp_remote_retrieve_response_code( $response );
-		if ( $code !== 200 ) {
+		if ( 200 !== $code ) {
 			return array();
 		}
 
@@ -480,7 +484,7 @@ class ASY_Keyphrase_Engine {
 		$words = preg_split( '/\s+/', trim( (string) $norm ) );
 		$out   = array();
 		foreach ( (array) $words as $w ) {
-			if ( $w === '' || mb_strlen( $w ) < 3 || isset( $stop[ $w ] ) ) {
+			if ( '' === $w || mb_strlen( $w ) < 3 || isset( $stop[ $w ] ) ) {
 				continue;
 			}
 			$out[ $w ] = true;
@@ -508,7 +512,7 @@ class ASY_Keyphrase_Engine {
 	 */
 	private static function stop_words() {
 		static $map = null;
-		if ( $map !== null ) {
+		if ( null !== $map ) {
 			return $map;
 		}
 

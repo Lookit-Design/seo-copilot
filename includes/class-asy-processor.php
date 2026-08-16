@@ -45,7 +45,7 @@ class ASY_Processor {
 		}
 	}
 
-	public function on_after_insert( $post_id, $post, $update, $post_before ) {
+	public function on_after_insert( $post_id, $post ) {
 		if ( 'publish' !== $post->post_status ) {
 			return;
 		}
@@ -55,14 +55,14 @@ class ASY_Processor {
 		$this->process( $post );
 	}
 
-	public function on_rest_publish( $post, $request ) {
+	public function on_rest_publish( $post ) {
 		if ( 'publish' !== $post->post_status ) {
 			return;
 		}
 		$this->process( $post );
 	}
 
-	public function on_elementor_save( $post_id, $data ) {
+	public function on_elementor_save( $post_id ) {
 		$post = get_post( $post_id );
 		if ( ! $post || 'publish' !== $post->post_status ) {
 			return;
@@ -285,9 +285,9 @@ class ASY_Processor {
 
 		wp_send_json_success(
 			array(
-				'status'     => get_post_meta( $post_id, '_asy_or_status', true ) ?: 'unknown',
-				'keyphrases' => get_post_meta( $post_id, '_asy_or_keyphrases', true ) ?: '',
-				'error'      => get_post_meta( $post_id, '_asy_or_error', true ) ?: '',
+				'status'     => get_post_meta( $post_id, '_asy_or_status', true ) ? get_post_meta( $post_id, '_asy_or_status', true ) : 'unknown',
+				'keyphrases' => get_post_meta( $post_id, '_asy_or_keyphrases', true ) ? get_post_meta( $post_id, '_asy_or_keyphrases', true ) : '',
+				'error'      => get_post_meta( $post_id, '_asy_or_error', true ) ? get_post_meta( $post_id, '_asy_or_error', true ) : '',
 			)
 		);
 	}
@@ -345,7 +345,7 @@ class ASY_Processor {
 	/**
 	 * Save the lock value from Classic Editor / quick edit.
 	 */
-	public function save_lock_metabox( $post_id, WP_Post $post ) {
+	public function save_lock_metabox( $post_id ) {
 		// Verify nonce
 		if ( ! isset( $_POST['asy_lock_nonce_field'] ) ||
 			! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['asy_lock_nonce_field'] ) ), 'asy_lock_nonce' ) ) {
@@ -615,7 +615,7 @@ class ASY_Processor {
 	 */
 	public static function first_words( $text, $n = 3 ) {
 		$text = preg_replace( '/\s+/', ' ', trim( (string) $text ) );
-		if ( $text === '' ) {
+		if ( '' === $text ) {
 			return '';
 		}
 		$words = preg_split( '/\s+/', $text );
@@ -689,7 +689,7 @@ class ASY_Processor {
 			$score  = ( $freq[ $words[ $i ] ] ?? 1 ) + ( $freq[ $words[ $i + 1 ] ] ?? 1 );
 
 			// Bonus if the bigram appears in the title
-			if ( strpos( $title_lower, $bigram ) !== false ) {
+			if ( false !== strpos( $title_lower, $bigram ) ) {
 				$score *= 1.5;
 			}
 
@@ -752,11 +752,11 @@ class ASY_Processor {
 		return $obj ? $obj->labels->singular_name : $post_type;
 	}
 
-	private function truncate( $string, $max ) {
-		if ( mb_strlen( $string ) <= $max ) {
-			return $string;
+	private function truncate( $text, $max ) {
+		if ( mb_strlen( $text ) <= $max ) {
+			return $text;
 		}
-		return mb_substr( $string, 0, $max - 1 ) . '…';
+		return mb_substr( $text, 0, $max - 1 ) . '…';
 	}
 
 	/**

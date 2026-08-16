@@ -28,7 +28,7 @@ class ASY_OpenRouter {
 			return self::DEFAULT_MODEL;
 		}
 		// Any model without :free suffix could be paid — force the suffix
-		if ( strpos( $model, ':free' ) === false ) {
+		if ( false === strpos( $model, ':free' ) ) {
 			return self::DEFAULT_MODEL;
 		}
 		return $model;
@@ -105,7 +105,7 @@ class ASY_OpenRouter {
 		$raw  = wp_remote_retrieve_body( $response );
 		$data = json_decode( $raw, true );
 
-		if ( $code !== 200 ) {
+		if ( 200 !== $code ) {
 			$msg = isset( $data['error']['message'] ) ? $data['error']['message'] : "HTTP {$code}";
 			return new WP_Error( 'asy_api_error', $msg );
 		}
