@@ -73,6 +73,11 @@ add_action(
 	}
 );
 
+function bsm_lock_meta_auth( $allowed = false, $meta_key = '', $object_id = 0 ): bool {
+	unset( $allowed, $meta_key );
+	return current_user_can( 'edit_post', (int) $object_id );
+}
+
 // Register the lock meta for Gutenberg REST access (from the Auto SEO loader).
 add_action(
 	'init',
@@ -85,9 +90,7 @@ add_action(
 					'show_in_rest'  => true,
 					'single'        => true,
 					'type'          => 'string',
-					'auth_callback' => function ( $allowed, $meta_key, $object_id ) {
-						unset( $allowed, $meta_key );
-						return current_user_can( 'edit_post', $object_id ); },
+					'auth_callback' => 'bsm_lock_meta_auth',
 				)
 			);
 		}
