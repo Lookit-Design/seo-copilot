@@ -1,0 +1,495 @@
+/* Lookit Bulk SEO Manager — assets/admin.css — v3.29.1 */
+/* ============================================================
+   Auto SEO for Yoast — Admin Styles
+   Matches the Bulk SEO Settings UI aesthetic
+   ============================================================ */
+
+/* ---------- Layout ---------- */
+.asy-wrap {
+    max-width: 900px;
+}
+
+.asy-header {
+    margin: 20px 0 16px;
+}
+.asy-header h1 {
+    font-size:calc(23px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #1d2327;
+    margin: 0 0 6px;
+}
+.asy-subtitle {
+    color: #646970;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    margin: 0;
+    max-width: none;
+    line-height: 1.6;
+}
+
+/* ---------- Placeholder bar ---------- */
+.asy-placeholder-bar {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.asy-placeholder-label {
+    font-size:calc(12px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #3c434a;
+    white-space: nowrap;
+}
+.asy-placeholders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.asy-placeholder-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 20px;
+    padding: 3px 10px 3px 8px;
+    cursor: pointer;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    color: #3c434a;
+    transition: border-color .15s, background .15s;
+    line-height: 1.5;
+}
+.asy-placeholder-btn:hover {
+    border-color: #2271b1;
+    background: #f0f6fc;
+    color: #135e96;
+}
+.asy-placeholder-btn code {
+    background: #e8f0fe;
+    color: #135e96;
+    font-size:calc(11px * var(--bsm-fs, 1));
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+.asy-placeholder-btn.asy-copied {
+    border-color: #00a32a;
+    background: #f0fdf4;
+    color: #00a32a;
+}
+
+/* ---------- Notice ---------- */
+.asy-notice {
+    padding: 10px 14px;
+    border-radius: 4px;
+    margin-bottom: 16px;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    font-weight: 500;
+}
+.asy-notice--success {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    color: #166534;
+}
+.asy-notice--error {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    color: #991b1b;
+}
+
+/* ---------- Card / Table ---------- */
+.asy-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+
+/* Column header (non-table cards only) */
+.asy-card-header {
+    gap: 0;
+    background: #f6f7f7;
+    border-bottom: 1px solid #dcdcde;
+    padding: 10px 16px;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+/* Single-span header (non-table cards) */
+.asy-or-card .asy-card-header,
+.asy-reprocess-card .asy-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.asy-badge {
+    font-size:calc(11px * var(--bsm-fs, 1));
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.asy-badge--free {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+/* Row — layout is handled by the inline table styles; keep visual state only. */
+.asy-row {
+    border-bottom: 1px solid #f0f0f1;
+    transition: background .1s;
+}
+.asy-row:last-child {
+    border-bottom: none;
+}
+.asy-row--active {
+    background: #fafeff;
+}
+.asy-row:hover {
+    background: #f6f7f7;
+}
+
+/* Toggle switch */
+.asy-toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+}
+.asy-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.asy-toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: #c3c4c7;
+    border-radius: 22px;
+    cursor: pointer;
+    transition: background .2s;
+}
+.asy-toggle-slider:before {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.25);
+}
+.asy-toggle input:checked + .asy-toggle-slider {
+    background: #2271b1;
+}
+.asy-toggle input:checked + .asy-toggle-slider:before {
+    transform: translateX(18px);
+}
+
+/* Post type label/slug */
+.asy-pt-label {
+    display: block;
+    font-weight: 500;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    color: #1d2327;
+}
+.asy-pt-slug {
+    display: block;
+    font-size:calc(11px * var(--bsm-fs, 1));
+    color: #8c8f94;
+    font-family: monospace;
+}
+
+/* Keyphrase checkboxes — 2-column grid (Title|Slug, Title short|Slug short) */
+.asy-col-kp {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 14px;
+    align-content: center;
+}
+.asy-col-kp .asy-checkbox-label:last-child {
+    grid-column: 1 / -1;   /* Top content word: own row, full width, at the bottom */
+}
+.asy-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    color: #3c434a;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.asy-checkbox-label input[type="checkbox"] {
+    margin: 0;
+}
+
+/* Template input */
+.asy-tpl-input {
+    width: 100%;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    padding: 6px 10px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    color: #1d2327;
+    box-sizing: border-box;
+    transition: border-color .15s, box-shadow .15s;
+}
+.asy-tpl-input:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+.asy-tpl-input::placeholder {
+    color: #a7aaad;
+}
+
+/* Card footer / save button */
+.asy-card-footer {
+    padding: 14px 16px;
+    background: #f6f7f7;
+    border-top: 1px solid #dcdcde;
+}
+#asy-save-btn {
+    font-size:calc(13px * var(--bsm-fs, 1));
+    padding: 6px 20px;
+    height: auto;
+    line-height: 1.6;
+}
+
+/* ---------- Info box ---------- */
+.asy-info-box {
+    background: #f0f6fc;
+    border: 1px solid #c5d9ed;
+    border-radius: 6px;
+    padding: 14px 18px;
+}
+.asy-info-box h3 {
+    margin: 0 0 8px;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #135e96;
+}
+.asy-info-box ul {
+    margin: 0;
+    padding: 0 0 0 18px;
+}
+.asy-info-box li {
+    font-size:calc(13px * var(--bsm-fs, 1));
+    color: #1d2327;
+    line-height: 1.7;
+}
+
+/* ── Post-types table ──
+   The Auto SEO Manager table is now real <table> markup styled inline alongside
+   the Bulk Editor table (see bsm_enqueue_assets). Nothing here should set a
+   display mode on .asy-row or it will fight the table layout. */
+
+.asy-col-kp { display: block; }
+.asy-col-kp select,
+.asy-col-ai select,
+.asy-col-tpl select,
+.asy-col-title select,
+.asy-row .asy-select {
+    width: 100%;
+    box-sizing: border-box;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    padding: 6px 10px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    color: #1d2327;
+}
+.asy-or-card .asy-card-header {
+    grid-template-columns: 1fr;
+}
+.asy-or-body {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+.asy-or-desc {
+    margin: 0;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    color: #646970;
+    line-height: 1.6;
+    max-width: none;
+}
+.asy-or-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    align-items: start;
+    gap: 12px;
+}
+.asy-or-label {
+    font-size:calc(13px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #1d2327;
+    padding-top: 6px;
+}
+.asy-or-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.asy-or-key-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.asy-or-input {
+    width: 320px;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    padding: 6px 10px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    color: #1d2327;
+}
+.asy-or-input:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+.asy-or-select {
+    font-size:calc(13px * var(--bsm-fs, 1));
+    padding: 5px 8px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+    max-width: 420px;
+    width: 100%;
+}
+.asy-or-select--sm {
+    max-width: 80px;
+}
+.asy-or-hint {
+    margin: 0;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    color: #8c8f94;
+    line-height: 1.5;
+}
+.asy-or-hint a {
+    color: #2271b1;
+}
+.asy-key-saved {
+    font-size:calc(12px * var(--bsm-fs, 1));
+    font-weight: 600;
+    color: #00a32a;
+}
+
+@media (max-width: 782px) {
+    .asy-or-row { grid-template-columns: 1fr; }
+    .asy-or-input { width: 100%; }
+}
+
+/* ---------- Reprocess card ---------- */
+.asy-or-input--sm {
+    width: 140px !important;
+}
+
+.asy-reprocess-result {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 5px;
+    font-size:calc(13px * var(--bsm-fs, 1));
+    line-height: 1.6;
+}
+.asy-reprocess-result--ok {
+    background: #edfaef;
+    border: 1px solid #b8e6be;
+    color: #1a6329;
+}
+.asy-reprocess-result--err {
+    background: #fcf0f1;
+    border: 1px solid #f5c0c3;
+    color: #8a1f24;
+}
+.asy-reprocess-result--info {
+    background: #f0f6fc;
+    border: 1px solid #b8d4f0;
+    color: #0a3d6b;
+}
+
+.asy-kp-pill {
+    display: inline-block;
+    background: #d7edff;
+    color: #0a4a7a;
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    font-weight: 500;
+    margin: 5px 4px 0 0;
+}
+
+/* ---------- Lock metabox (post sidebar) ---------- */
+.asy-lock-wrap {
+    font-size:calc(13px * var(--bsm-fs, 1));
+}
+.asy-lock-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 600;
+    color: #1d2327;
+    cursor: pointer;
+    margin-bottom: 6px;
+}
+.asy-lock-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+}
+.asy-lock-hint {
+    color: #646970;
+    font-size:calc(12px * var(--bsm-fs, 1));
+    line-height: 1.5;
+    margin: 0 0 8px;
+}
+.asy-lock-status {
+    font-size:calc(12px * var(--bsm-fs, 1));
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+.asy-lock-status--on {
+    background: #fff3cd;
+    color: #7a4f00;
+    border: 1px solid #f5c842;
+}
+.asy-lock-status--off {
+    background: #edfaef;
+    color: #1a6329;
+    border: 1px solid #b8e6be;
+}
+
+/* Header labels: wrap between words only, never mid-word. */
+.asy-card-header > span {
+    overflow-wrap: normal;
+    word-break: keep-all;
+    line-height: 1.3;
+}
+
+/* Responsive handling now lives with the inline table styles. */
+
+/* ── Auto SEO Manager save state (v3.15.2) ─────────────────────────────────── */
+.asy-save-state { margin-left:10px; font-size:12px; color:#646970; vertical-align:middle; }
+.asy-save-state.is-dirty  { color:#b26900; }
+.asy-save-state.is-saving { color:#646970; }
+.asy-save-state.is-saved  { color:#028673; }
+.asy-save-state.is-error  { color:#d63638; font-weight:600; }
