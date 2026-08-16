@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.34.1
+ * Version:      3.34.2
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.34.1' );
+define( 'BSM_VERSION', '3.34.2' );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -85,8 +85,9 @@ add_action(
 					'show_in_rest'  => true,
 					'single'        => true,
 					'type'          => 'string',
-					'auth_callback' => function () {
-						return current_user_can( 'edit_posts' ); },
+					'auth_callback' => function ( $allowed, $meta_key, $object_id ) {
+						unset( $allowed, $meta_key );
+						return current_user_can( 'edit_post', $object_id ); },
 				)
 			);
 		}
@@ -308,8 +309,8 @@ function bsm_ajax_preview_templates(): void {
 
 	$post_id = absint( $_POST['post_id'] ?? 0 );
 	$post    = $post_id ? get_post( $post_id ) : null;
-	if ( ! $post ) {
-		wp_send_json_error( 'Post not found.' );
+	if ( ! $post || ! current_user_can( 'edit_post', $post_id ) ) {
+		wp_send_json_error( 'Invalid post or permission denied.' );
 	}
 
 	// Remember the chosen sample per user, not site-wide.
@@ -1436,7 +1437,7 @@ function bsm_ajax_fill_keyphrases() {
 	$results = array();
 	foreach ( $ids as $id ) {
 		$post = get_post( $id );
-		if ( ! $post ) {
+		if ( ! $post || ! current_user_can( 'edit_post', $id ) ) {
 			continue;
 		}
 
@@ -1558,7 +1559,7 @@ function bsm_ajax_ai_fill() {
 
 	foreach ( $ids as $id ) {
 		$post = get_post( $id );
-		if ( ! $post ) {
+		if ( ! $post || ! current_user_can( 'edit_post', $id ) ) {
 			continue;
 		}
 
@@ -1760,8 +1761,8 @@ function bsm_ajax_asy_ai_generate() {
 
 	$post_id = absint( $_POST['post_id'] ?? 0 );
 	$post    = $post_id ? get_post( $post_id ) : null;
-	if ( ! $post ) {
-		wp_send_json_error( 'Post not found.' );
+	if ( ! $post || ! current_user_can( 'edit_post', $post_id ) ) {
+		wp_send_json_error( 'Invalid post or permission denied.' );
 	}
 
 	// One primary + N related, where N is the Auto SEO "Keyphrases to generate" setting.
@@ -1838,7 +1839,7 @@ function bsm_ajax_related_fill() {
 
 	foreach ( $ids as $id ) {
 		$post = get_post( $id );
-		if ( ! $post ) {
+		if ( ! $post || ! current_user_can( 'edit_post', $id ) ) {
 			continue;
 		}
 		$related = array();
@@ -1911,7 +1912,7 @@ function bsm_ajax_get_desc_data() {
 
 	foreach ( $ids as $id ) {
 		$post = get_post( $id );
-		if ( ! $post ) {
+		if ( ! $post || ! current_user_can( 'edit_post', $id ) ) {
 			continue;
 		}
 
