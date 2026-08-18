@@ -1057,8 +1057,8 @@ class BSM_Health {
 		$kind    = isset( $_POST['kind'] ) ? sanitize_key( wp_unslash( $_POST['kind'] ) ) : 'metadesc';
 		$words   = absint( $_POST['words'] ?? 0 );
 		$post    = $post_id ? get_post( $post_id ) : null;
-		if ( ! $post ) {
-			wp_send_json_error( 'Post not found.' );
+		if ( ! $post || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error( 'Invalid post or permission denied.' );
 		}
 		if ( ! function_exists( 'bsm_ai_call_webhook' ) ) {
 			wp_send_json_error( 'AI engine unavailable.' );
