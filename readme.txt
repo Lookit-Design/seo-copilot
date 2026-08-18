@@ -4,7 +4,7 @@ Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
 Tested up to: 7.0
 Requires PHP: 7.4
-Stable tag: 3.34.1
+Stable tag: 3.34.2
 License: GPL-2.0+
 Author: Lookit Design
 Author URI: https://lookitai.com
@@ -38,6 +38,9 @@ This plugin can also connect to a Lookit platform webhook (self-hosted n8n) that
 * [Vadim] add auth on the webhook and finalize vendor ToS/Privacy links before WP.org submission.
 
 == Changelog ==
+
+= 3.34.2 =
+* Require permission to edit each post before filling, suggesting, or locking SEO fields, so authors cannot read or change content they do not own.
 
 = 3.34.1 =
 * Shortened the display name to 'Lookit SEO Copilot' (dropped the 'for Yoast' suffix) in the Plugins list, admin menu title, and header banner. Identifiers still unchanged.
