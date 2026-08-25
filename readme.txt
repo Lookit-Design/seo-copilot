@@ -2,7 +2,7 @@
 Contributors: lookitdesign
 Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
 Stable tag: 3.34.2
 License: GPL-2.0+
