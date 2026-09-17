@@ -9,7 +9,7 @@
  * License:      GPL-2.0+
  * Requires at least: 5.9
  * Requires PHP: 7.4
- * Text Domain:  lookit-seo-copilot
+ * Text Domain:  bulk-keyphrase-manager
  */
 
 defined( 'ABSPATH' ) || exit;
@@ -554,13 +554,13 @@ function bsm_ajax_get_meta_fields(): void {
 	// to avoid SQL escaping issues with LIKE patterns.
 	try {
 		global $wpdb;
-		$all_keys = wp_cache_get( 'bsm_distinct_meta_keys', 'lookit-seo-copilot' );
+		$all_keys = wp_cache_get( 'bsm_distinct_meta_keys', 'bulk-keyphrase-manager' );
 		if ( false === $all_keys ) {
             // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- distinct meta_key list for the admin field browser; result cached below.
 			$all_keys = $wpdb->get_col(
 				"SELECT DISTINCT meta_key FROM {$wpdb->postmeta} ORDER BY meta_key LIMIT 500"
 			);
-			wp_cache_set( 'bsm_distinct_meta_keys', $all_keys, 'lookit-seo-copilot', 5 * MINUTE_IN_SECONDS );
+			wp_cache_set( 'bsm_distinct_meta_keys', $all_keys, 'bulk-keyphrase-manager', 5 * MINUTE_IN_SECONDS );
 		}
 
 		$skip_prefixes = array( '_', 'seopress', 'rankmath', 'rank_math', 'wp_', 'elementor', '_elementor' );
@@ -704,7 +704,7 @@ function bsm_render_settings() {
 			<div class="bsm-set-shell" id="bsm-set-shell">
 
 				<?php /* ── Nav rail ── */ ?>
-				<nav class="bsm-set-rail" id="bsm-set-rail" aria-label="<?php esc_attr_e( 'Settings sections', 'lookit-seo-copilot' ); ?>">
+				<nav class="bsm-set-rail" id="bsm-set-rail" aria-label="<?php esc_attr_e( 'Settings sections', 'bulk-keyphrase-manager' ); ?>">
 					<?php
 					$bsm_last_group = ''; foreach ( $bsm_panes as $bsm_key => $bsm_meta ) :
 						[ $bsm_group, $bsm_label ] = $bsm_meta;
@@ -877,7 +877,7 @@ function bsm_render_settings() {
 							against your WordPress account, so it won't change what anyone else on the site sees.
 						</p>
 
-						<div class="bsm-set-sizes" role="radiogroup" aria-label="<?php esc_attr_e( 'Text size', 'lookit-seo-copilot' ); ?>">
+						<div class="bsm-set-sizes" role="radiogroup" aria-label="<?php esc_attr_e( 'Text size', 'bulk-keyphrase-manager' ); ?>">
 							<?php
 							$bsm_current_size = bsm_get_text_size();
 							foreach ( bsm_text_sizes() as $bsm_sk => $bsm_sv ) :
@@ -913,7 +913,7 @@ function bsm_render_settings() {
 									placeholder="e.g. 27037" min="1">
 							<button type="button" id="asy-reprocess-btn" class="button button-primary">Generate keyphrases</button>
 							<button type="button" id="asy-ai-btn" class="button bsm-set-ai"
-									title="<?php esc_attr_e( 'Generate focus keyphrase, related keyphrases, and meta description with Amazon Bedrock, and save them to Yoast', 'lookit-seo-copilot' ); ?>">
+									title="<?php esc_attr_e( 'Generate focus keyphrase, related keyphrases, and meta description with Amazon Bedrock, and save them to Yoast', 'bulk-keyphrase-manager' ); ?>">
 								&#10022; Use AI
 							</button>
 						</div>
@@ -946,11 +946,11 @@ function bsm_render_settings() {
 					<section class="bsm-set-pane" data-pane="help">
 						<h3>How it works</h3>
 						<ul class="bsm-set-help">
-							<li><?php esc_html_e( 'Bulk Editor fills the Yoast focus keyphrase, meta description, and related keyphrases for the posts you choose; Auto SEO Manager does the same automatically when a post is published.', 'lookit-seo-copilot' ); ?></li>
-							<li><?php esc_html_e( 'Keyphrase source: "Full title", "Slug", their first-3-words variants, "Top content word" (strongest phrase in the content), or AI — Nova Lite via the platform.', 'lookit-seo-copilot' ); ?></li>
-							<li><?php esc_html_e( 'Related keyphrases: Off, Datamuse (free, no key), or AI — Nova Lite. Meta description: a saved template, AI — Nova Lite, or none.', 'lookit-seo-copilot' ); ?></li>
-							<li><?php esc_html_e( 'Any AI option is generated with Amazon Bedrock through the platform (set the endpoint under AI engine). If the platform is unreachable, Auto SEO falls back to the post title so publishing never breaks.', 'lookit-seo-copilot' ); ?></li>
-							<li><?php esc_html_e( 'Auto SEO overwrites the fields on each publish. Requires Yoast SEO (free or premium).', 'lookit-seo-copilot' ); ?></li>
+							<li><?php esc_html_e( 'Bulk Editor fills the Yoast focus keyphrase, meta description, and related keyphrases for the posts you choose; Auto SEO Manager does the same automatically when a post is published.', 'bulk-keyphrase-manager' ); ?></li>
+							<li><?php esc_html_e( 'Keyphrase source: "Full title", "Slug", their first-3-words variants, "Top content word" (strongest phrase in the content), or AI — Nova Lite via the platform.', 'bulk-keyphrase-manager' ); ?></li>
+							<li><?php esc_html_e( 'Related keyphrases: Off, Datamuse (free, no key), or AI — Nova Lite. Meta description: a saved template, AI — Nova Lite, or none.', 'bulk-keyphrase-manager' ); ?></li>
+							<li><?php esc_html_e( 'Any AI option is generated with Amazon Bedrock through the platform (set the endpoint under AI engine). If the platform is unreachable, Auto SEO falls back to the post title so publishing never breaks.', 'bulk-keyphrase-manager' ); ?></li>
+							<li><?php esc_html_e( 'Auto SEO overwrites the fields on each publish. Requires Yoast SEO (free or premium).', 'bulk-keyphrase-manager' ); ?></li>
 						</ul>
 					</section>
 
@@ -965,7 +965,7 @@ function bsm_render_settings() {
 
 					<div class="bsm-set-sample">
 						<p class="bsm-set-sample-t" id="bsm-sample-title">
-							<?php echo $bsm_sample ? esc_html( $bsm_sample->post_title ) : esc_html__( 'No posts found', 'lookit-seo-copilot' ); ?>
+							<?php echo $bsm_sample ? esc_html( $bsm_sample->post_title ) : esc_html__( 'No posts found', 'bulk-keyphrase-manager' ); ?>
 						</p>
 						<p class="bsm-set-sample-m">
 							<span class="bsm-set-tag" id="bsm-sample-type">
@@ -2394,9 +2394,9 @@ function bsm_enqueue_assets( $hook ): void {
 			array(
 				'ajax_url'    => admin_url( 'admin-ajax.php' ),
 				'nonce'       => wp_create_nonce( 'asy_nonce' ),
-				'saved'       => __( 'Settings saved!', 'lookit-seo-copilot' ),
-				'key_saved'   => __( 'API key saved!', 'lookit-seo-copilot' ),
-				'error'       => __( 'Save failed. Please try again.', 'lookit-seo-copilot' ),
+				'saved'       => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
+				'key_saved'   => __( 'API key saved!', 'bulk-keyphrase-manager' ),
+				'error'       => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
 				'has_api_key' => ! empty( get_option( 'asy_openrouter_api_key', '' ) ),
 			)
 		);
@@ -2605,7 +2605,7 @@ function bsm_render_page(): void {
 			<div class="notice notice-success is-dismissible"><p>
 			<?php
 			/* translators: %d: number of items saved. */
-			printf( esc_html( _n( '%d item saved.', '%d items saved.', $saved, 'lookit-seo-copilot' ) ), (int) $saved );
+			printf( esc_html( _n( '%d item saved.', '%d items saved.', $saved, 'bulk-keyphrase-manager' ) ), (int) $saved );
 			?>
 			</p></div><?php endif; ?>
 		<?php
@@ -2614,7 +2614,7 @@ function bsm_render_page(): void {
 			<div class="notice notice-warning is-dismissible"><p>
 			<?php
 			/* translators: %d: number of items that could not be updated. */
-			printf( esc_html__( '%d item(s) could not be updated.', 'lookit-seo-copilot' ), (int) $errors );
+			printf( esc_html__( '%d item(s) could not be updated.', 'bulk-keyphrase-manager' ), (int) $errors );
 			?>
 			</p></div><?php endif; ?>
 		<?php if ( ! class_exists( 'WPSEO_Meta' ) && ! defined( 'WPSEO_VERSION' ) ) : ?>
@@ -2624,7 +2624,7 @@ function bsm_render_page(): void {
 		<p class="bsm-cpt-count">
 			<?php
 			/* translators: 1: number of post types, 2: comma-separated list of post type labels. */
-			printf( esc_html__( '%1$d post types: %2$s', 'lookit-seo-copilot' ), count( $all_types ), esc_html( implode( ', ', array_map( fn( $t ) => $t->label, $all_types ) ) ) );
+			printf( esc_html__( '%1$d post types: %2$s', 'bulk-keyphrase-manager' ), count( $all_types ), esc_html( implode( ', ', array_map( fn( $t ) => $t->label, $all_types ) ) ) );
 			if ( $jet_active && $jet_count ) {
 				/* translators: %d: number of post types provided via JetEngine. */
 				printf( ' — <strong>%d</strong> via JetEngine.', (int) $jet_count );
@@ -2910,7 +2910,7 @@ function bsm_render_page(): void {
 				<span style="font-size:calc(12px * var(--bsm-fs, 1));color:#666;">
 					<?php
 					/* translators: 1: first item number, 2: last item number, 3: total items. */
-					printf( esc_html__( 'Showing %1$d–%2$d of %3$d', 'lookit-seo-copilot' ), (int) ( ( ( $paged - 1 ) * BSM_PER_PAGE ) + 1 ), (int) min( $paged * BSM_PER_PAGE, $total ), (int) $total );
+					printf( esc_html__( 'Showing %1$d–%2$d of %3$d', 'bulk-keyphrase-manager' ), (int) ( ( ( $paged - 1 ) * BSM_PER_PAGE ) + 1 ), (int) min( $paged * BSM_PER_PAGE, $total ), (int) $total );
 					?>
 				</span>
 				<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">

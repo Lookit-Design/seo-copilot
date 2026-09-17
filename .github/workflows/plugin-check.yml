@@ -44,8 +44,8 @@ jobs:
 
       - name: Build distributable copy
         run: |
-          mkdir -p build/lookit-seo-copilot
-          rsync -a --exclude-from=.distignore ./ build/lookit-seo-copilot/
+          mkdir -p build/bulk-keyphrase-manager
+          rsync -a --exclude-from=.distignore ./ build/bulk-keyphrase-manager/
 
       - name: Set up WordPress and Plugin Check
         run: |
@@ -54,14 +54,14 @@ jobs:
           wp db create --path=wp
           wp core install --path=wp --url=http://localhost --title="Plugin Check" \
             --admin_user=admin --admin_password=admin --admin_email=admin@example.com --skip-email
-          cp -R build/lookit-seo-copilot wp/wp-content/plugins/lookit-seo-copilot
+          cp -R build/bulk-keyphrase-manager wp/wp-content/plugins/bulk-keyphrase-manager
           wp plugin install plugin-check --activate --path=wp
-          wp plugin activate lookit-seo-copilot --path=wp
+          wp plugin activate bulk-keyphrase-manager --path=wp
 
       - name: Run Plugin Check
         run: |
           set +e
-          OUTPUT=$(wp plugin check lookit-seo-copilot --path=wp --include-experimental --ignore-warnings 2>&1)
+          OUTPUT=$(wp plugin check bulk-keyphrase-manager --path=wp --include-experimental --ignore-warnings 2>&1)
           STATUS=$?
           set -e
           echo "$OUTPUT"

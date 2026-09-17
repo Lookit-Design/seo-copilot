@@ -31,7 +31,7 @@ class BSM_Health {
 
 	public static function render(): void {
 		if ( ! current_user_can( 'edit_posts' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'lookit-seo-copilot' ) );
+			wp_die( esc_html__( 'Permission denied.', 'bulk-keyphrase-manager' ) );
 		}
 
 		// Read-only routing — no state change, so no nonce required.
@@ -66,8 +66,8 @@ class BSM_Health {
 
 		if ( ! class_exists( 'WPSEO_Meta' ) && ! defined( 'WPSEO_VERSION' ) ) {
 			echo '<div class="notice notice-warning"><p><strong>' .
-				esc_html__( 'Yoast SEO not active.', 'lookit-seo-copilot' ) . '</strong> ' .
-				esc_html__( 'Keyphrase and meta-description checks read Yoast fields, so they will be blank until Yoast is active.', 'lookit-seo-copilot' ) .
+				esc_html__( 'Yoast SEO not active.', 'bulk-keyphrase-manager' ) . '</strong> ' .
+				esc_html__( 'Keyphrase and meta-description checks read Yoast fields, so they will be blank until Yoast is active.', 'bulk-keyphrase-manager' ) .
 				'</p></div>';
 		}
 
@@ -600,11 +600,11 @@ class BSM_Health {
 
 	public static function export(): void {
 		if ( ! current_user_can( 'edit_posts' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'lookit-seo-copilot' ) );
+			wp_die( esc_html__( 'Permission denied.', 'bulk-keyphrase-manager' ) );
 		}
 		$nonce = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
 		if ( ! wp_verify_nonce( $nonce, 'bsm_health_export' ) ) {
-			wp_die( esc_html__( 'Security check failed.', 'lookit-seo-copilot' ) );
+			wp_die( esc_html__( 'Security check failed.', 'bulk-keyphrase-manager' ) );
 		}
 
 		$all_types = bsm_get_post_types();

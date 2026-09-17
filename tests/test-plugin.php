@@ -5,6 +5,30 @@
 
 class Test_Lookit_SEO_Copilot_Plugin extends WP_UnitTestCase {
 
+	public function test_plugin_headers_preserve_display_and_technical_identity() {
+		$headers = get_file_data(
+			dirname( __DIR__ ) . '/bulk-keyphrase-manager.php',
+			array(
+				'name'        => 'Plugin Name',
+				'text_domain' => 'Text Domain',
+			)
+		);
+
+		$this->assertSame( 'Lookit SEO Copilot', $headers['name'] );
+		$this->assertSame( 'bulk-keyphrase-manager', $headers['text_domain'] );
+	}
+
+	public function test_only_canonical_main_file_exists() {
+		$this->assertFileExists( dirname( __DIR__ ) . '/bulk-keyphrase-manager.php' );
+		$this->assertFileDoesNotExist( dirname( __DIR__ ) . '/lookit-seo-copilot.php' );
+	}
+
+	public function test_canonical_plugin_basename() {
+		$main_file = WP_PLUGIN_DIR . '/bulk-keyphrase-manager/bulk-keyphrase-manager.php';
+
+		$this->assertSame( 'bulk-keyphrase-manager/bulk-keyphrase-manager.php', plugin_basename( $main_file ) );
+	}
+
 	public function test_plugin_defines_version() {
 		$this->assertTrue( defined( 'BSM_VERSION' ) );
 	}
