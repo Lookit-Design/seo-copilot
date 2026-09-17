@@ -27,7 +27,7 @@ class Test_Lookit_SEO_Copilot_SEO4_Ajax extends WP_Ajax_UnitTestCase {
 
 		try {
 			$this->_handleAjax( 'bsm_health_apply_slug' );
-		} catch ( WPAjaxDieStopException $error ) {
+		} catch ( WPAjaxDieStopException | WPAjaxDieContinueException $error ) {
 			unset( $error );
 		}
 		$this->assertSame( 'ajax-old', get_post( $post_id )->post_name );
@@ -44,7 +44,7 @@ class Test_Lookit_SEO_Copilot_SEO4_Ajax extends WP_Ajax_UnitTestCase {
 
 		try {
 			$this->_handleAjax( $action );
-		} catch ( WPAjaxDieStopException $error ) {
+		} catch ( WPAjaxDieStopException | WPAjaxDieContinueException $error ) {
 			unset( $error );
 		}
 		$this->assertSame( '', get_user_meta( $admin_id, BSM_Tasks::META_CHECKS, true ) );
