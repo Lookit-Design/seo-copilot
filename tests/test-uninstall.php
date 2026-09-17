@@ -9,7 +9,7 @@ class Test_Lookit_SEO_Copilot_Uninstall extends WP_UnitTestCase {
 		update_option( 'asy_openrouter_api_key', 'lookit-test-value' );
 
 		if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
-			define( 'WP_UNINSTALL_PLUGIN', 'lookit-seo-copilot/lookit-seo-copilot.php' );
+			define( 'WP_UNINSTALL_PLUGIN', 'bulk-keyphrase-manager/bulk-keyphrase-manager.php' );
 		}
 		require dirname( __DIR__ ) . '/uninstall.php';
 

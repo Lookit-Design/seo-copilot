@@ -302,7 +302,7 @@ class ASY_Processor {
 		foreach ( $post_types as $pt ) {
 			add_meta_box(
 				'asy_seo_lock',
-				__( 'Auto SEO', 'lookit-seo-copilot' ),
+				__( 'Auto SEO', 'bulk-keyphrase-manager' ),
 				array( $this, 'render_lock_metabox' ),
 				$pt,
 				'side',
@@ -324,18 +324,18 @@ class ASY_Processor {
 						name="asy_seo_locked"
 						value="1"
 						<?php checked( $locked ); ?>>
-				<span><?php esc_html_e( 'Lock SEO fields', 'lookit-seo-copilot' ); ?></span>
+				<span><?php esc_html_e( 'Lock SEO fields', 'bulk-keyphrase-manager' ); ?></span>
 			</label>
 			<p class="asy-lock-hint">
-				<?php esc_html_e( 'When locked, Auto SEO will not overwrite the focus keyphrase, meta description, or related keyphrases on publish.', 'lookit-seo-copilot' ); ?>
+				<?php esc_html_e( 'When locked, Auto SEO will not overwrite the focus keyphrase, meta description, or related keyphrases on publish.', 'bulk-keyphrase-manager' ); ?>
 			</p>
 			<?php if ( $locked ) : ?>
 				<p class="asy-lock-status asy-lock-status--on">
-					🔒 <?php esc_html_e( 'SEO fields are protected', 'lookit-seo-copilot' ); ?>
+					🔒 <?php esc_html_e( 'SEO fields are protected', 'bulk-keyphrase-manager' ); ?>
 				</p>
 			<?php else : ?>
 				<p class="asy-lock-status asy-lock-status--off">
-					🔓 <?php esc_html_e( 'Auto SEO is active', 'lookit-seo-copilot' ); ?>
+					🔓 <?php esc_html_e( 'Auto SEO is active', 'bulk-keyphrase-manager' ); ?>
 				</p>
 			<?php endif; ?>
 		</div>

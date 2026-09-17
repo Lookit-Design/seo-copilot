@@ -30,9 +30,9 @@ require_once $_functions;
 /**
  * Load the plugin under test.
  */
-function _lookit_seo_copilot_load_plugin() {
-	require dirname( __DIR__ ) . '/lookit-seo-copilot.php';
+function _bulk_keyphrase_manager_load_plugin() {
+	require dirname( __DIR__ ) . '/bulk-keyphrase-manager.php';
 }
-tests_add_filter( 'muplugins_loaded', '_lookit_seo_copilot_load_plugin' );
+tests_add_filter( 'muplugins_loaded', '_bulk_keyphrase_manager_load_plugin' );
 
 require $_tests_dir . '/includes/bootstrap.php';

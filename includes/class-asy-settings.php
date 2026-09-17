@@ -24,10 +24,10 @@ class ASY_Settings {
 		$parent = function_exists( 'wpseo_init' ) ? 'wpseo_dashboard' : 'options-general.php';
 		add_submenu_page(
 			$parent,
-			__( 'Auto SEO Templates', 'lookit-seo-copilot' ),
-			__( 'Auto SEO Templates', 'lookit-seo-copilot' ),
+			__( 'Auto SEO Templates', 'bulk-keyphrase-manager' ),
+			__( 'Auto SEO Templates', 'bulk-keyphrase-manager' ),
 			'manage_options',
-			'lookit-seo-copilot',
+			'bulk-keyphrase-manager',
 			array( $this, 'render_page' )
 		);
 	}
@@ -115,7 +115,7 @@ class ASY_Settings {
 
 	public function enqueue_assets( $hook ) {
 		// Settings page: full JS + CSS
-		if ( false !== strpos( $hook, 'lookit-seo-copilot' ) ) {
+		if ( false !== strpos( $hook, 'bulk-keyphrase-manager' ) ) {
 			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
 			wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), ASY_VERSION, true );
 			wp_localize_script(
@@ -124,9 +124,9 @@ class ASY_Settings {
 				array(
 					'ajax_url'    => admin_url( 'admin-ajax.php' ),
 					'nonce'       => wp_create_nonce( 'asy_nonce' ),
-					'saved'       => __( 'Settings saved!', 'lookit-seo-copilot' ),
-					'key_saved'   => __( 'API key saved!', 'lookit-seo-copilot' ),
-					'error'       => __( 'Save failed. Please try again.', 'lookit-seo-copilot' ),
+					'saved'       => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
+					'key_saved'   => __( 'API key saved!', 'bulk-keyphrase-manager' ),
+					'error'       => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
 					'has_api_key' => ! empty( get_option( 'asy_openrouter_api_key', '' ) ),
 				)
 			);
@@ -153,7 +153,7 @@ class ASY_Settings {
 		// means the request was blocked, stripped or truncated in transit.
 		// Bail instead of overwriting saved settings with nothing.
 		if ( empty( $raw ) ) {
-			wp_send_json_error( __( 'No settings arrived at the server — nothing was saved.', 'lookit-seo-copilot' ) );
+			wp_send_json_error( __( 'No settings arrived at the server — nothing was saved.', 'bulk-keyphrase-manager' ) );
 		}
 
 		// Truncation guard. PHP silently discards POST fields past
@@ -166,7 +166,7 @@ class ASY_Settings {
 			wp_send_json_error(
 				sprintf(
 				/* translators: 1: rows received, 2: rows sent */
-					__( 'Only %1$d of %2$d rows reached the server — PHP dropped part of the request (max_input_vars). Nothing was saved.', 'lookit-seo-copilot' ),
+					__( 'Only %1$d of %2$d rows reached the server — PHP dropped part of the request (max_input_vars). Nothing was saved.', 'bulk-keyphrase-manager' ),
 					count( $raw ),
 					$expected
 				)
@@ -232,24 +232,24 @@ class ASY_Settings {
 		$kp_count   = (int) get_option( 'asy_kp_count', 3 );
 
 		$placeholders = array(
-			'{title}'     => __( 'Page title', 'lookit-seo-copilot' ),
-			'{site}'      => __( 'Site name', 'lookit-seo-copilot' ),
-			'{keyphrase}' => __( 'Post title used as keyphrase', 'lookit-seo-copilot' ),
-			'{excerpt}'   => __( 'First 25 words of content', 'lookit-seo-copilot' ),
-			'{category}'  => __( 'First category / term', 'lookit-seo-copilot' ),
-			'{type}'      => __( 'Post type label', 'lookit-seo-copilot' ),
+			'{title}'     => __( 'Page title', 'bulk-keyphrase-manager' ),
+			'{site}'      => __( 'Site name', 'bulk-keyphrase-manager' ),
+			'{keyphrase}' => __( 'Post title used as keyphrase', 'bulk-keyphrase-manager' ),
+			'{excerpt}'   => __( 'First 25 words of content', 'bulk-keyphrase-manager' ),
+			'{category}'  => __( 'First category / term', 'bulk-keyphrase-manager' ),
+			'{type}'      => __( 'Post type label', 'bulk-keyphrase-manager' ),
 		);
 		?>
 		<div class="<?php echo $embedded ? 'asy-wrap asy-embedded' : 'wrap asy-wrap'; ?>">
 
 			<div class="asy-header">
 				<?php if ( $embedded ) : ?>
-					<h2 style="font-family:'DM Sans',system-ui,sans-serif;font-size:calc(18px * var(--bsm-fs, 1));margin:0 0 6px;"><?php esc_html_e( 'Auto SEO Manager', 'lookit-seo-copilot' ); ?></h2>
+					<h2 style="font-family:'DM Sans',system-ui,sans-serif;font-size:calc(18px * var(--bsm-fs, 1));margin:0 0 6px;"><?php esc_html_e( 'Auto SEO Manager', 'bulk-keyphrase-manager' ); ?></h2>
 				<?php else : ?>
-					<h1><?php esc_html_e( 'Auto SEO Templates', 'lookit-seo-copilot' ); ?></h1>
+					<h1><?php esc_html_e( 'Auto SEO Templates', 'bulk-keyphrase-manager' ); ?></h1>
 				<?php endif; ?>
 				<p class="asy-subtitle">
-					<?php esc_html_e( 'Auto-fill Yoast keyphrase, meta description, related keyphrases, and SEO title when a post is published. Add templates in Settings → Description Templates.', 'lookit-seo-copilot' ); ?>
+					<?php esc_html_e( 'Auto-fill Yoast keyphrase, meta description, related keyphrases, and SEO title when a post is published. Add templates in Settings → Description Templates.', 'bulk-keyphrase-manager' ); ?>
 				</p>
 			</div>
 
@@ -268,12 +268,12 @@ class ASY_Settings {
 			<table class="bsm-table widefat bsm-auto-table">
 				<thead>
 					<tr>
-						<th class="bsm-auto-th-toggle"><?php esc_html_e( 'Enable', 'lookit-seo-copilot' ); ?></th>
-						<th><?php esc_html_e( 'Post Type', 'lookit-seo-copilot' ); ?></th>
-						<th><?php esc_html_e( 'Auto Keyphrase', 'lookit-seo-copilot' ); ?></th>
-						<th><?php esc_html_e( 'Related Keyphrases', 'lookit-seo-copilot' ); ?></th>
-						<th><?php esc_html_e( 'Meta Description Template', 'lookit-seo-copilot' ); ?></th>
-						<th><?php esc_html_e( 'SEO Title', 'lookit-seo-copilot' ); ?></th>
+						<th class="bsm-auto-th-toggle"><?php esc_html_e( 'Enable', 'bulk-keyphrase-manager' ); ?></th>
+						<th><?php esc_html_e( 'Post Type', 'bulk-keyphrase-manager' ); ?></th>
+						<th><?php esc_html_e( 'Auto Keyphrase', 'bulk-keyphrase-manager' ); ?></th>
+						<th><?php esc_html_e( 'Related Keyphrases', 'bulk-keyphrase-manager' ); ?></th>
+						<th><?php esc_html_e( 'Meta Description Template', 'bulk-keyphrase-manager' ); ?></th>
+						<th><?php esc_html_e( 'SEO Title', 'bulk-keyphrase-manager' ); ?></th>
 					</tr>
 				</thead>
 
@@ -357,7 +357,7 @@ class ASY_Settings {
 							?>
 							<select class="asy-tpl-input asy-select"
 									name="templates[<?php echo esc_attr( $pt_slug ); ?>][template]">
-								<option value=""><?php esc_html_e( '— No meta description —', 'lookit-seo-copilot' ); ?></option>
+								<option value=""><?php esc_html_e( '— No meta description —', 'bulk-keyphrase-manager' ); ?></option>
 								<optgroup label="── AI (Amazon Bedrock) ──">
 									<option value="ai" <?php selected( $tpl, 'ai' ); ?>>&#10022; AI — Nova Lite via platform</option>
 								</optgroup>
@@ -378,7 +378,7 @@ class ASY_Settings {
 								<?php endif; ?>
 								<?php if ( '' !== (string) $tpl && ! $tpl_matched ) : ?>
 									<option value="<?php echo esc_attr( $tpl ); ?>" selected>
-										<?php echo esc_html( $tpl ); ?> <?php esc_html_e( '(custom)', 'lookit-seo-copilot' ); ?>
+										<?php echo esc_html( $tpl ); ?> <?php esc_html_e( '(custom)', 'bulk-keyphrase-manager' ); ?>
 									</option>
 								<?php endif; ?>
 							</select>
@@ -391,7 +391,7 @@ class ASY_Settings {
 						?>
 						<td class="asy-col-title">
 							<select class="asy-title-source asy-select" name="templates[<?php echo esc_attr( $pt_slug ); ?>][title_source]">
-								<option value=""><?php esc_html_e( '— No SEO title —', 'lookit-seo-copilot' ); ?></option>
+								<option value=""><?php esc_html_e( '— No SEO title —', 'bulk-keyphrase-manager' ); ?></option>
 								<optgroup label="── AI (Amazon Bedrock) ──">
 									<option value="ai" <?php selected( $title_src, 'ai' ); ?>>&#10022; AI — Nova Lite via platform</option>
 								</optgroup>
@@ -411,7 +411,7 @@ class ASY_Settings {
 								</optgroup>
 								<?php endif; ?>
 								<?php if ( '' !== (string) $title_src && ! $title_matched ) : ?>
-									<option value="<?php echo esc_attr( $title_src ); ?>" selected><?php echo esc_html( $title_src ); ?> <?php esc_html_e( '(custom)', 'lookit-seo-copilot' ); ?></option>
+									<option value="<?php echo esc_attr( $title_src ); ?>" selected><?php echo esc_html( $title_src ); ?> <?php esc_html_e( '(custom)', 'bulk-keyphrase-manager' ); ?></option>
 								<?php endif; ?>
 							</select>
 						</td>
@@ -424,10 +424,10 @@ class ASY_Settings {
 
 			<p class="bsm-auto-save">
 				<button type="button" id="asy-save-btn" class="button button-primary">
-					<?php esc_html_e( 'Save Settings', 'lookit-seo-copilot' ); ?>
+					<?php esc_html_e( 'Save Settings', 'bulk-keyphrase-manager' ); ?>
 				</button>
 				<span id="asy-save-state" class="asy-save-state" data-rows="<?php echo esc_attr( (string) count( $post_types ) ); ?>">
-					<?php esc_html_e( 'All changes saved', 'lookit-seo-copilot' ); ?>
+					<?php esc_html_e( 'All changes saved', 'bulk-keyphrase-manager' ); ?>
 				</span>
 			</p>
 

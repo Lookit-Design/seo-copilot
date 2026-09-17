@@ -31,9 +31,11 @@ Supports `WordPress >= 5.9` on `PHP >= 7.4`.
 
 This plugin is installed from GitHub, not from WordPress.org.
 
-1. Clone or copy this repository into `/wp-content/plugins/lookit-seo-copilot`.
+1. Clone or copy this repository into `/wp-content/plugins/bulk-keyphrase-manager`.
 2. Activate **Lookit SEO Copilot** through the **Plugins** menu in WordPress.
 3. Yoast SEO should be active; the plugin writes Yoast meta fields.
+
+The `bulk-keyphrase-manager` folder and `bulk-keyphrase-manager.php` main file retain the plugin's technical identity for in-place upgrades. Its display name remains **Lookit SEO Copilot**.
 
 ### Configuration
 
