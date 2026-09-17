@@ -477,7 +477,7 @@ class BSM_Health {
 		// Pick from the worst ~40% (at least 3) with a little randomness.
 		$slice_len = max( 3, (int) ceil( count( $ranked ) * 0.4 ) );
 		$slice     = array_slice( $ranked, 0, $slice_len );
-		$pick      = $slice[ wp_rand( 0, count( $slice ) - 1 ) ];
+		$pick      = 1 === count( $slice ) ? $slice[0] : $slice[ wp_rand( 0, count( $slice ) - 1 ) ];
 
 		return $pick['post'];
 	}
