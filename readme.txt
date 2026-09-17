@@ -4,7 +4,7 @@ Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.45.2
+Stable tag: 3.46.2
 License: GPL-2.0+
 Author: Lookit Design
 Author URI: https://lookitai.com
@@ -15,10 +15,11 @@ Bulk-edit Yoast focus keyphrases and meta descriptions across all post types, pl
 
 Manage Yoast SEO focus keyphrases and meta descriptions for every post type from one screen, and auto-fill Yoast fields on publish.
 
-Four tabs:
+Main views:
 * **Bulk Editor** — edit keyphrases and meta descriptions across all post types (incl. JetEngine CPTs), with filters, templates, and bulk fill.
 * **Auto SEO Manager** — per-post-type rules that auto-fill the focus keyphrase, meta description, and related keyphrases when a post is published. Uses PHP content extraction + the free Datamuse API (no AI key, no credits). Includes a per-post "Lock SEO Fields" metabox and a Test & Reprocess tool.
 * **SEO Health** — audit every post type/page against on-page SEO best practices (keyphrase optimization, titles & meta, content quality, media alt text, internal links), with a health score, per-page drill-down, and a priority-fix list. On-page checks run entirely in WordPress; deeper checks (Core Web Vitals, site crawl, Search Console, AI suggestions) are surfaced as platform-connected features.
+* **Reports** — run a batched site audit, review site-wide scores and highest-impact fixes, and simulate how selected improvements would affect the score.
 * **Settings** — build reusable keyphrase and meta-description templates and browse available meta fields (JetEngine, ACF, Meta Box, post meta).
 
 == External Services ==
@@ -45,6 +46,10 @@ This plugin can also connect to a separate Lookit platform webhook (self-hosted 
 * [Vadim] add/verify auth on the vision webhook, rate-limit the generate endpoint, and finalize vendor ToS/Privacy links before WP.org submission.
 
 == Changelog ==
+
+= 3.46.2 =
+* Added Website Report and Impact Simulator views with exact check-weight projections and batched site auditing.
+* Added print-to-PDF fidelity and corrected the progress bar's initial hidden state.
 
 = 3.45.2 =
 * Fixed admin.css and admin.js being served from cache: both were pinned to a version constant that has not changed since 3.15.3, so style updates never reached the browser. They now version with the plugin.

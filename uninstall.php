@@ -20,6 +20,8 @@ $asy_uninstall_options = array(
 	'bsm_alt_prompt',
 	'bsm_focus_skips',
 	'bsm_landing_tab',
+	'bsm_report_snapshot',
+	'bsm_report_scan_state',
 );
 
 if ( is_multisite() ) {
