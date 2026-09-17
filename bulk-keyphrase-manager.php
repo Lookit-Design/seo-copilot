@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.45.2
+ * Version:      3.46.2
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.45.2' );
+define( 'BSM_VERSION', '3.46.2' );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -46,6 +46,7 @@ add_action( 'wp_ajax_bsm_health_save', array( 'BSM_Health', 'ajax_save' ) );
 add_action( 'wp_ajax_bsm_health_alt_generate', array( 'BSM_Health', 'ajax_alt_generate' ) );
 add_action( 'wp_ajax_bsm_health_alt_save', array( 'BSM_Health', 'ajax_alt_save' ) );
 add_action( 'wp_ajax_bsm_health_apply_related', array( 'BSM_Health', 'ajax_apply_related' ) );
+add_action( 'wp_ajax_bsm_report_scan', array( 'BSM_Reports', 'ajax_scan' ) );
 // Focus tab: pre-render routing (pin the focused post in the URL, handle skips)
 // and the Settings skip-list manager.
 add_action( 'admin_init', 'bsm_remember_tab', 5 );
@@ -77,6 +78,7 @@ require_once ASY_PLUGIN_DIR . 'includes/class-asy-openrouter.php'; // kept for b
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-settings.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-processor.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-health.php';
+require_once ASY_PLUGIN_DIR . 'includes/class-bsm-reports.php';
 
 // The processor (publish hooks, reprocess AJAX, lock metabox) runs as-is.
 add_action( 'plugins_loaded', array( 'ASY_Processor', 'init' ) );
@@ -2623,7 +2625,7 @@ function bsm_topbar(): void {
  * page renders one tab's markup with another tab's scripts.
  */
 function bsm_resolve_tab(): string {
-	$valid = array( 'health', 'auto', 'bulk', 'focus', 'settings' );
+	$valid = array( 'health', 'auto', 'bulk', 'focus', 'reports', 'settings' );
 
     // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab routing, no state change.
 	$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
@@ -2636,7 +2638,7 @@ function bsm_resolve_tab(): string {
 	if ( ! in_array( $tab, $valid, true ) ) {
 		$tab = 'health';
 	}
-	if ( in_array( $tab, array( 'auto', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+	if ( in_array( $tab, array( 'auto', 'reports', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
 		$tab = 'health';
 	}
 	return $tab;
@@ -2651,6 +2653,7 @@ function bsm_view_params( string $tab ): array {
 		'health'   => array( 'audit_post', 'htype', 'hpaged' ),
 		'bulk'     => array( 'bkm_type', 'kw_status', 'desc_status', 'post_status', 's', 'paged' ),
 		'focus'    => array( 'fstrat', 'ff' ),
+		'reports'  => array( 'view' ),
 		'settings' => array( 'pane' ),
 		'auto'     => array(),
 	);
@@ -2684,10 +2687,10 @@ function bsm_remember_tab(): void {
 			return;
 		}
 		$last = sanitize_key( $view['tab'] );
-		if ( ! in_array( $last, array( 'health', 'auto', 'bulk', 'focus', 'settings' ), true ) ) {
+		if ( ! in_array( $last, array( 'health', 'auto', 'bulk', 'focus', 'reports', 'settings' ), true ) ) {
 			return;
 		}
-		if ( in_array( $last, array( 'auto', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+		if ( in_array( $last, array( 'auto', 'reports', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 		$args = array(
@@ -2703,7 +2706,7 @@ function bsm_remember_tab(): void {
 		exit;
 	}
 
-	if ( ! in_array( $tab, array( 'health', 'auto', 'bulk', 'focus', 'settings' ), true ) ) {
+	if ( ! in_array( $tab, array( 'health', 'auto', 'bulk', 'focus', 'reports', 'settings' ), true ) ) {
 		return;
 	}
 
@@ -2738,6 +2741,7 @@ function bsm_render_tabs( string $active ): void {
 	$tabs['bulk']  = 'Bulk Editor';
 	$tabs['focus'] = 'Focus';
 	if ( current_user_can( 'manage_options' ) ) {
+		$tabs['reports']  = 'Reports';
 		$tabs['settings'] = 'Settings';
 	}
 	?>
@@ -2805,6 +2809,20 @@ function bsm_enqueue_assets( $hook ): void {
 				'ajax_url'  => admin_url( 'admin-ajax.php' ),
 				'nonce'     => wp_create_nonce( BSM_AJAX_NONCE ),
 				'sample_id' => (int) get_user_meta( get_current_user_id(), 'bsm_preview_post_id', true ),
+			)
+		);
+	}
+
+	if ( 'reports' === $bsm_tab && current_user_can( 'manage_options' ) ) {
+		wp_enqueue_style( 'bsm-reports', ASY_PLUGIN_URL . 'assets/reports.css', array(), BSM_VERSION );
+		wp_enqueue_script( 'bsm-reports', ASY_PLUGIN_URL . 'assets/reports.js', array(), BSM_VERSION, true );
+		wp_localize_script(
+			'bsm-reports',
+			'BSM_REPORT',
+			array(
+				'ajax_url' => admin_url( 'admin-ajax.php' ),
+				'nonce'    => wp_create_nonce( 'bsm_report_scan' ),
+				'snapshot' => BSM_Reports::payload( BSM_Reports::snapshot() ),
 			)
 		);
 	}
@@ -3087,6 +3105,9 @@ function bsm_render_page(): void {
 		return; }
 	if ( 'focus' === $tab ) {
 		BSM_Health::render_focus();
+		return; }
+	if ( 'reports' === $tab && current_user_can( 'manage_options' ) ) {
+		BSM_Reports::render();
 		return; }
 	if ( 'settings' === $tab && current_user_can( 'manage_options' ) ) {
 		bsm_render_settings();
