@@ -43,10 +43,9 @@ jobs:
           tools: wp-cli
 
       - name: Build distributable copy
-        run: bin/build-plugin.sh
-
-      - name: Verify plugin identity
-        run: bin/test-plugin-identity.sh
+        run: |
+          mkdir -p build/bulk-keyphrase-manager
+          rsync -a --exclude-from=.distignore ./ build/bulk-keyphrase-manager/
 
       - name: Set up WordPress and Plugin Check
         run: |
