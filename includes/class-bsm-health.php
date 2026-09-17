@@ -24,6 +24,8 @@ class BSM_Health {
 	/** SEO title length (characters). */
 	const TITLE_OK  = 60;
 	const TITLE_MAX = 70;
+	const URL_OK    = 40;
+	const URL_MAX   = 70;
 
 	// Focus tab: how many candidate posts to audit per pick. Bounds the cost on
 	// large sites — see focus_pick() and the Vadim note about caching a full-site
@@ -574,6 +576,18 @@ class BSM_Health {
 			$tg[] = self::chk( 'warn', 'SEO title length', $len . ' characters — may truncate on mobile.' );
 		} else {
 			$tg[] = self::chk( 'fail', 'SEO title length', $len . ' characters — will truncate in results.' );
+		}
+		$slug = (string) $post->post_name;
+		if ( '' !== $slug ) {
+			$slug_len   = strlen( $slug );
+			$slug_words = count( array_filter( explode( '-', $slug ) ) );
+			if ( $slug_len <= self::URL_OK ) {
+				$tg[] = self::chk( 'good', 'URL length', $slug_len . ' characters, ' . $slug_words . ' word' . ( 1 === $slug_words ? '' : 's' ) . ' — short and readable.' );
+			} elseif ( $slug_len <= self::URL_MAX ) {
+				$tg[] = self::chk( 'warn', 'URL length', $slug_len . ' characters — aim for ' . self::URL_OK . ' or fewer.' );
+			} else {
+				$tg[] = self::chk( 'fail', 'URL length', $slug_len . ' characters — long enough to be truncated in results.' );
+			}
 		}
 		$dlen = mb_strlen( $metadesc );
 		if ( '' === $metadesc ) {
@@ -1500,7 +1514,8 @@ class BSM_Health {
 				$alt_panel = $vision_on && ! empty( $c['items'] ) && 'Image alt text' === $c['label'];
 				$ico_cls   = 'ico ' . $c['status'] . ( $alt_panel ? ' bsm-h-alt-ico' : '' );
 				$det_cls   = 'cd' . ( $alt_panel ? ' bsm-h-alt-detail' : '' );
-				echo '<div class="chk"' . ( $alt_panel ? ' data-bsm-alt="1"' : '' ) . '><div class="' . esc_attr( $ico_cls ) . '">' . esc_html( $icon ) . '</div><div>';
+				$check_id  = class_exists( 'BSM_Reports' ) ? 'bsm-h-chk-' . BSM_Reports::check_slug( (string) $c['label'] ) : '';
+				echo '<div class="chk"' . ( $check_id ? ' id="' . esc_attr( $check_id ) . '"' : '' ) . ( $alt_panel ? ' data-bsm-alt="1"' : '' ) . '><div class="' . esc_attr( $ico_cls ) . '">' . esc_html( $icon ) . '</div><div>';
 				echo '<div class="ct">' . esc_html( $c['label'] ) . '</div>';
 				echo '<div class="' . esc_attr( $det_cls ) . '">' . esc_html( $c['detail'] ) . '</div>';
 				if ( ! $alt_panel && ! empty( $c['files'] ) ) {
@@ -1560,6 +1575,7 @@ class BSM_Health {
 			$rows = array(
 				array( 'keyphrase', 'Focus keyphrase', 'Suggest focus keyphrases for this page. Generate again for a different set.' ),
 				array( 'related', 'Related keyphrases', 'Suggest related keyphrases to save alongside the focus keyphrase.' ),
+				array( 'slug', 'URL slug', 'Suggest a shorter, keyphrase-led URL. Changing it sets up a 301 from the old address.' ),
 				array( 'metadesc', 'Meta description', 'Write a meta description for this page.' ),
 				array( 'subheadings', 'H2 subheadings', 'Suggest keyphrase-aware H2s to structure the page.' ),
 				array( 'outline', 'Content-expansion outline', 'Suggest sections to add — useful for thin pages.' ),
@@ -1569,7 +1585,13 @@ class BSM_Health {
 				echo '<div class="chk"><div class="ico ai">✦</div><div class="bsm-h-suggest-wrap">';
 				echo '<div class="ct">' . esc_html( $label ) . '</div>';
 				echo '<div class="cd">' . esc_html( $desc ) . '</div>';
-				echo '<button type="button" class="button button-primary bsm-h-suggest" data-post="' . esc_attr( (string) $pid ) . '" data-kind="' . esc_attr( $kind ) . '">Generate</button>';
+				echo '<button type="button" class="button button-primary bsm-h-suggest" data-post="' . esc_attr( (string) $pid ) . '" data-kind="' . esc_attr( $kind ) . '"';
+				if ( 'slug' === $kind ) {
+					echo ' data-permalink="' . esc_url( (string) get_permalink( $post ) ) . '"';
+					echo ' data-slug="' . esc_attr( (string) $post->post_name ) . '"';
+					echo ' data-host="' . esc_attr( self::redirect_host_label() ) . '"';
+				}
+				echo '>Generate</button>';
 				echo '<div class="bsm-h-suggest-out" hidden></div>';
 				echo '</div></div>';
 			}
@@ -1659,6 +1681,10 @@ class BSM_Health {
 				'task'  => 'outline',
 				'count' => 5,
 			),
+			'slug'        => array(
+				'task'  => 'slug',
+				'count' => 5,
+			),
 			'content'     => array(
 				'task'  => 'content',
 				'count' => 1,
@@ -1667,6 +1693,9 @@ class BSM_Health {
 		$cfg       = $map[ $kind ] ?? $map['metadesc'];
 		$keyphrase = (string) get_post_meta( $post->ID, BSM_META_KW, true );
 		$word_goal = 'content' === $cfg['task'] ? max( 100, min( 2000, $words ? $words : 600 ) ) : 0;
+		if ( 'slug' === $kind && ! self::slug_eligible( $post ) ) {
+			return new WP_Error( 'ineligible', 'Only ordinary published pages can have slug suggestions.' );
+		}
 
 		// Re-generate variation (3.39.0). The client sends which attempt this is
 		// and everything it has already been shown, so pressing Generate again
@@ -1690,6 +1719,17 @@ class BSM_Health {
 			return $result;
 		}
 
+		if ( 'slug' === $kind ) {
+			$list = self::slug_candidates( $post, $keyphrase, is_array( $result ) ? $result : array( (string) $result ) );
+			if ( empty( $list ) ) {
+				return new WP_Error( 'no_slug', 'No shorter slug to suggest for this page.' );
+			}
+			return array(
+				'kind' => 'slug',
+				'list' => $list,
+			);
+		}
+
 		if ( is_array( $result ) ) {
 			$list = array_values( $result );
 			// "Related" reuses the keyphrase task: item 0 is the primary, which
@@ -1706,6 +1746,339 @@ class BSM_Health {
 			'kind' => $kind,
 			'text' => (string) $result,
 		);
+	}
+
+	private const SLUG_STOP = array(
+		'a',
+		'an',
+		'and',
+		'are',
+		'as',
+		'at',
+		'be',
+		'but',
+		'by',
+		'can',
+		'do',
+		'for',
+		'from',
+		'how',
+		'in',
+		'is',
+		'it',
+		'its',
+		'of',
+		'on',
+		'or',
+		'our',
+		'that',
+		'the',
+		'their',
+		'this',
+		'to',
+		'we',
+		'what',
+		'when',
+		'where',
+		'which',
+		'who',
+		'why',
+		'will',
+		'with',
+		'you',
+		'your',
+		'about',
+		'after',
+		'all',
+		'also',
+		'any',
+		'get',
+		'has',
+		'have',
+		'into',
+		'just',
+		'more',
+		'my',
+		'no',
+		'not',
+		'over',
+		'so',
+		'than',
+		'then',
+		'there',
+		'they',
+		'was',
+		'were',
+	);
+
+	public static function slug_eligible( WP_Post $post ): bool {
+		return 'publish' === $post->post_status
+			&& (int) get_option( 'page_on_front' ) !== (int) $post->ID
+			&& (int) get_option( 'page_for_posts' ) !== (int) $post->ID;
+	}
+
+	public static function slug_candidates( WP_Post $post, string $keyphrase, array $suggestions ): array {
+		if ( ! self::slug_eligible( $post ) ) {
+			return array();
+		}
+		$out     = array();
+		$current = (string) $post->post_name;
+		$add     = static function ( $raw ) use ( &$out, $current ): void {
+			$slug = sanitize_title( (string) $raw );
+			if ( '' === $slug || $current === $slug || strlen( $slug ) > 60 || substr_count( $slug, '-' ) > 5 ) {
+				return;
+			}
+			if ( ! in_array( $slug, $out, true ) ) {
+				$out[] = $slug;
+			}
+		};
+
+		if ( '' !== trim( $keyphrase ) ) {
+			$add( $keyphrase );
+			$add( self::slug_from_text( $keyphrase ) );
+		}
+		$add( self::slug_from_text( $post->post_title ) );
+		foreach ( $suggestions as $suggestion ) {
+			$add( $suggestion );
+		}
+		if ( empty( $out ) ) {
+			$add( self::slug_from_text( str_replace( '-', ' ', $current ) ) );
+		}
+		return array_slice( $out, 0, 5 );
+	}
+
+	private static function slug_from_text( string $text ): string {
+		$text  = preg_replace( '/\b(19|20)\d{2}\b/', ' ', $text );
+		$words = preg_split( '/[^a-z0-9]+/', strtolower( (string) $text ), -1, PREG_SPLIT_NO_EMPTY );
+		if ( ! $words ) {
+			return '';
+		}
+		$keep = array();
+		foreach ( $words as $word ) {
+			if ( in_array( $word, self::SLUG_STOP, true ) || ( empty( $keep ) && ctype_digit( $word ) ) ) {
+				continue;
+			}
+			$keep[] = $word;
+			if ( 5 <= count( $keep ) ) {
+				break;
+			}
+		}
+		if ( empty( $keep ) ) {
+			$keep = array_slice( $words, 0, 3 );
+		}
+		return sanitize_title( implode( '-', $keep ) );
+	}
+
+	public static function redirect_host_label(): string {
+		if ( class_exists( 'WPSEO_Redirect' ) && class_exists( 'WPSEO_Redirect_Manager' ) ) {
+			return 'Yoast SEO Premium';
+		}
+		if ( class_exists( 'Red_Item' ) ) {
+			return 'Redirection';
+		}
+		return 'WordPress';
+	}
+
+	public static function normalize_redirect_path( string $value ): string {
+		$value = trim( $value );
+		if ( '' === $value ) {
+			return '';
+		}
+		$host = wp_parse_url( $value, PHP_URL_HOST );
+		if ( $host && strtolower( (string) $host ) !== strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) ) ) {
+			return $value;
+		}
+		$path = (string) wp_parse_url( $value, PHP_URL_PATH );
+		if ( '' === $path ) {
+			$path = $value;
+		}
+		$path = '/' . ltrim( $path, '/' );
+		return '/' === $path ? $path : untrailingslashit( $path );
+	}
+
+	public static function resolve_yoast_redirect( string $path, object $manager ): string {
+		$origin   = ltrim( self::normalize_redirect_path( $path ), '/' );
+		$redirect = method_exists( $manager, 'get_redirect' ) ? $manager->get_redirect( $origin ) : null;
+		if ( ! is_object( $redirect ) && method_exists( $manager, 'get_redirects' ) ) {
+			foreach ( (array) $manager->get_redirects() as $candidate ) {
+				if ( ! is_object( $candidate ) || ! method_exists( $candidate, 'get_origin' ) ) {
+					continue;
+				}
+				if ( ltrim( self::normalize_redirect_path( (string) $candidate->get_origin() ), '/' ) === $origin ) {
+					$redirect = $candidate;
+					break;
+				}
+			}
+		}
+		if ( ! is_object( $redirect ) || ! method_exists( $redirect, 'get_target' ) ) {
+			return '';
+		}
+		return self::normalize_redirect_path( (string) $redirect->get_target() );
+	}
+
+	public static function resolve_redirection_redirect( string $path, callable $lookup ): string {
+		$items = call_user_func( $lookup, self::normalize_redirect_path( $path ) );
+		foreach ( is_array( $items ) ? $items : array() as $item ) {
+			if ( ! is_object( $item ) || ! method_exists( $item, 'get_action_data' ) ) {
+				continue;
+			}
+			$data   = $item->get_action_data();
+			$target = is_string( $data ) ? $data : ( is_array( $data ) ? (string) ( $data['url'] ?? '' ) : '' );
+			$target = self::normalize_redirect_path( $target );
+			if ( '' !== $target ) {
+				return $target;
+			}
+		}
+		return '';
+	}
+
+	public static function redirect_adapters(): array {
+		$adapters = array();
+		if ( class_exists( 'WPSEO_Redirect' ) && class_exists( 'WPSEO_Redirect_Manager' ) ) {
+			$adapters[] = array(
+				'label'   => 'Yoast SEO Premium',
+				'resolve' => static function ( string $path ): string {
+					$manager = new WPSEO_Redirect_Manager();
+					return self::resolve_yoast_redirect( $path, $manager );
+				},
+				'create'  => static function ( string $from, string $to ): bool {
+					$redirect = new WPSEO_Redirect( ltrim( $from, '/' ), ltrim( $to, '/' ), 301 );
+					$manager  = new WPSEO_Redirect_Manager();
+					return (bool) $manager->create_redirect( $redirect );
+				},
+			);
+		}
+		if ( class_exists( 'Red_Item' ) && method_exists( 'Red_Item', 'create' ) ) {
+			$adapters[] = array(
+				'label'   => 'Redirection',
+				'resolve' => static function ( string $path ): string {
+					if ( ! method_exists( 'Red_Item', 'get_for_url' ) ) {
+						return '';
+					}
+					return self::resolve_redirection_redirect( $path, array( 'Red_Item', 'get_for_url' ) );
+				},
+				'create'  => static function ( string $from, string $to ): bool {
+					$result = Red_Item::create(
+						array(
+							'url'         => $from,
+							'match_type'  => 'url',
+							'action_type' => 'url',
+							'action_code' => 301,
+							'action_data' => array( 'url' => $to ),
+							'group_id'    => 1,
+							'status'      => 'enabled',
+						)
+					);
+					return ! is_wp_error( $result );
+				},
+			);
+		}
+		return $adapters;
+	}
+
+	public static function create_redirect( string $from, string $to, ?array $adapters = null ): string {
+		$adapters = null === $adapters ? self::redirect_adapters() : $adapters;
+		$from     = self::normalize_redirect_path( $from );
+		$to       = self::normalize_redirect_path( $to );
+		$target   = self::normalize_redirect_path( (string) apply_filters( 'bsm_health_redirect_target', $to, $from ) );
+		if ( '' === $target || $target === $from ) {
+			$target = $to;
+		}
+		$seen = array( $from, $target );
+		for ( $depth = 0; $depth < 5; ++$depth ) {
+			$target_host = wp_parse_url( $target, PHP_URL_HOST );
+			if ( $target_host && strtolower( (string) $target_host ) !== strtolower( (string) wp_parse_url( home_url(), PHP_URL_HOST ) ) ) {
+				break;
+			}
+			$resolved = '';
+			foreach ( $adapters as $adapter ) {
+				if ( is_callable( $adapter['resolve'] ?? null ) ) {
+					try {
+						$resolved = self::normalize_redirect_path( (string) call_user_func( $adapter['resolve'], $target ) );
+					} catch ( Throwable $error ) {
+						unset( $error );
+						$resolved = '';
+					}
+					if ( '' !== $resolved ) {
+						break;
+					}
+				}
+			}
+			if ( '' === $resolved || in_array( $resolved, $seen, true ) ) {
+				break;
+			}
+			$target = $resolved;
+			$seen[] = $target;
+		}
+		foreach ( $adapters as $adapter ) {
+			if ( empty( $adapter['label'] ) || ! is_callable( $adapter['create'] ?? null ) ) {
+				continue;
+			}
+			try {
+				if ( call_user_func( $adapter['create'], $from, $target ) ) {
+					return (string) $adapter['label'];
+				}
+			} catch ( Throwable $error ) {
+				unset( $error );
+			}
+		}
+		return 'WordPress';
+	}
+
+	public static function apply_slug( int $post_id, string $raw_slug, bool $redirect = true ) {
+		if ( ! current_user_can( 'edit_posts' ) || ! current_user_can( 'edit_post', $post_id ) ) {
+			return new WP_Error( 'forbidden', 'Invalid post or permission denied.' );
+		}
+		$post = get_post( $post_id );
+		if ( ! $post || ! self::slug_eligible( $post ) ) {
+			return new WP_Error( 'ineligible', 'Only ordinary published pages can be renamed here.' );
+		}
+		$wanted = sanitize_title( $raw_slug );
+		if ( '' === $wanted || $wanted === $post->post_name ) {
+			return new WP_Error( 'invalid_slug', 'Choose a different non-empty slug.' );
+		}
+
+		$old_url  = (string) get_permalink( $post );
+		$old_path = self::normalize_redirect_path( $old_url );
+		$unique   = wp_unique_post_slug( $wanted, $post_id, $post->post_status, $post->post_type, (int) $post->post_parent );
+		$result   = wp_update_post(
+			array(
+				'ID'        => $post_id,
+				'post_name' => $unique,
+			),
+			true
+		);
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+		clean_post_cache( $post_id );
+		$new_url  = (string) get_permalink( $post_id );
+		$new_path = self::normalize_redirect_path( $new_url );
+		$host     = 'WordPress';
+		if ( $redirect && $old_path !== $new_path ) {
+			$host = self::create_redirect( $old_path, $new_path );
+		}
+		return array(
+			'slug'      => $unique,
+			'taken'     => $unique !== $wanted,
+			'permalink' => $new_url,
+			'redirect'  => $redirect,
+			'host'      => $host,
+			'from'      => $old_path,
+			'to'        => $new_path,
+		);
+	}
+
+	public static function ajax_apply_slug(): void {
+		check_ajax_referer( 'bsm_health_slug', 'nonce' );
+		$post_id = absint( $_POST['post_id'] ?? 0 );
+		$slug    = isset( $_POST['slug'] ) ? sanitize_title( wp_unslash( $_POST['slug'] ) ) : '';
+		$redir   = isset( $_POST['redirect'] ) && '1' === sanitize_text_field( wp_unslash( $_POST['redirect'] ) );
+		$result  = self::apply_slug( $post_id, $slug, $redir );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message() );
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**

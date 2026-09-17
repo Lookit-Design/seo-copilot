@@ -11,9 +11,15 @@ class BSM_Reports {
 
 	const OPTION       = 'bsm_report_snapshot';
 	const STATE_OPTION = 'bsm_report_scan_state';
-	const SCHEMA       = 1;
+	const SCHEMA       = 3;
 	const BATCH        = 50;
 	const STATE_TTL    = 900;
+	const ITEM_CAP     = 400;
+
+	public static function check_slug( string $label ): string {
+		$slug = sanitize_title( $label );
+		return '' !== $slug ? $slug : md5( $label );
+	}
 
 	public static function snapshot(): array {
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -28,6 +34,21 @@ class BSM_Reports {
 			self::SCHEMA !== (int) ( $snapshot['schema'] ?? 0 ) ||
 			BSM_VERSION !== (string) ( $snapshot['version'] ?? '' )
 		);
+	}
+
+	public static function check_items( string $slug ): array {
+		$snapshot = self::snapshot();
+		foreach ( (array) ( $snapshot['items'] ?? array() ) as $label => $lists ) {
+			if ( self::check_slug( (string) $label ) !== sanitize_key( $slug ) ) {
+				continue;
+			}
+			return array(
+				'label' => (string) $label,
+				'fail'  => array_slice( array_values( array_unique( array_map( 'absint', (array) ( $lists['f'] ?? array() ) ) ) ), 0, self::ITEM_CAP ),
+				'warn'  => array_slice( array_values( array_unique( array_map( 'absint', (array) ( $lists['w'] ?? array() ) ) ) ), 0, self::ITEM_CAP ),
+			);
+		}
+		return array();
 	}
 
 	private static function store_option( string $name, array $value ): void {
@@ -45,7 +66,7 @@ class BSM_Reports {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view selection.
 		$view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : 'report';
-		if ( ! in_array( $view, array( 'report', 'simulator' ), true ) ) {
+		if ( ! in_array( $view, array( 'report', 'simulator', 'tasks' ), true ) ) {
 			$view = 'report';
 		}
 
@@ -60,6 +81,7 @@ class BSM_Reports {
 					foreach ( array(
 						'report'    => 'Website Report',
 						'simulator' => 'Impact Simulator',
+						'tasks'     => 'Task Manager',
 					) as $key => $label ) {
 						$url = add_query_arg(
 							array(
@@ -109,6 +131,7 @@ class BSM_Reports {
 				<?php endif; ?>
 				<div id="bsm-rep-report" class="bsm-rep-view<?php echo 'report' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
 				<div id="bsm-rep-sim" class="bsm-rep-view<?php echo 'simulator' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
+				<div id="bsm-rep-tasks" class="bsm-rep-view<?php echo 'tasks' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
 			</div>
 		</div>
 		<?php
@@ -132,9 +155,14 @@ class BSM_Reports {
 			'score_sum'  => 0.0,
 			'issues_sum' => 0,
 			'checks'     => array(),
+			'items'      => array(),
 			'types'      => array(),
 			'buckets'    => array( 0, 0, 0, 0 ),
 			'worst'      => array(),
+			'url_n'      => 0,
+			'url_sum'    => 0,
+			'url_bands'  => array( 0, 0, 0, 0 ),
+			'url_long'   => array(),
 		);
 	}
 
@@ -329,6 +357,52 @@ class BSM_Reports {
 			}
 			++$aggregate['checks'][ $label ][ $check['status'] ];
 			$aggregate['checks'][ $label ]['gain'] += 100 * ( 1 - self::status_value( $check['status'] ) ) / count( $checks );
+			if ( 'good' !== $check['status'] ) {
+				if ( ! isset( $aggregate['items'][ $label ] ) ) {
+					$aggregate['items'][ $label ] = array(
+						'f' => array(),
+						'w' => array(),
+					);
+				}
+				$item_bucket = 'fail' === $check['status'] ? 'f' : 'w';
+				if ( count( $aggregate['items'][ $label ][ $item_bucket ] ) < self::ITEM_CAP ) {
+					$aggregate['items'][ $label ][ $item_bucket ][] = (int) $post->ID;
+				}
+			}
+		}
+
+		$slug = (string) $post->post_name;
+		if ( '' !== $slug ) {
+			$slug_length = strlen( $slug );
+			++$aggregate['url_n'];
+			$aggregate['url_sum'] += $slug_length;
+			$url_bucket            = $slug_length <= 30 ? 0 : ( $slug_length <= BSM_Health::URL_OK ? 1 : ( $slug_length <= BSM_Health::URL_MAX ? 2 : 3 ) );
+			++$aggregate['url_bands'][ $url_bucket ];
+			if ( $slug_length > BSM_Health::URL_OK ) {
+				$aggregate['url_long'][] = array(
+					'title' => html_entity_decode( wp_strip_all_tags( get_the_title( $post ) ), ENT_QUOTES, 'UTF-8' ),
+					'slug'  => $slug,
+					'len'   => $slug_length,
+					'words' => count( array_filter( explode( '-', $slug ) ) ),
+					'edit'  => (string) add_query_arg(
+						array(
+							'page'       => 'lookit-bulk-seo',
+							'tab'        => 'health',
+							'audit_post' => $post->ID,
+						),
+						admin_url( 'admin.php' )
+					),
+					'type'  => $aggregate['types'][ $type ]['label'],
+				);
+				usort(
+					$aggregate['url_long'],
+					static function ( array $left, array $right ): int {
+						$length = $right['len'] <=> $left['len'];
+						return 0 !== $length ? $length : strcmp( $left['slug'], $right['slug'] );
+					}
+				);
+				$aggregate['url_long'] = array_slice( $aggregate['url_long'], 0, 12 );
+			}
 		}
 
 		$aggregate['worst'][] = array(
@@ -363,10 +437,12 @@ class BSM_Reports {
 			}
 			$checks[] = array(
 				'label'    => $label,
+				'slug'     => self::check_slug( (string) $label ),
 				'fail'     => (int) $check['fail'],
 				'warn'     => (int) $check['warn'],
 				'good'     => (int) $check['good'],
 				'affected' => $affected,
+				'listed'   => count( (array) ( $aggregate['items'][ $label ]['f'] ?? array() ) ) + count( (array) ( $aggregate['items'][ $label ]['w'] ?? array() ) ),
 				'raw'      => (float) $check['gain'] / max( 1, $total ),
 			);
 		}
@@ -428,19 +504,28 @@ class BSM_Reports {
 
 		$generated = (int) ( $aggregate['generated'] ?? 0 );
 		return array(
-			'generated' => $generated,
-			'stale'     => self::snapshot_is_stale( $aggregate ),
-			'date'      => $generated ? date_i18n( get_option( 'date_format' ), $generated ) : '',
-			'site'      => html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES, 'UTF-8' ),
-			'host'      => (string) wp_parse_url( home_url(), PHP_URL_HOST ),
-			'total'     => $total,
-			'score'     => $score,
-			'top_three' => min( 100, round( $score + $top_three_points, 1 ) ),
-			'issues'    => $total ? round( (int) $aggregate['issues_sum'] / $total, 1 ) : 0.0,
-			'buckets'   => array_map( 'intval', (array) ( $aggregate['buckets'] ?? array( 0, 0, 0, 0 ) ) ),
-			'checks'    => $checks,
-			'types'     => $types,
-			'worst'     => array_values( (array) ( $aggregate['worst'] ?? array() ) ),
+			'generated'   => $generated,
+			'stale'       => self::snapshot_is_stale( $aggregate ),
+			'tasks_ready' => self::SCHEMA === (int) ( $aggregate['schema'] ?? 0 ) && isset( $aggregate['items'] ) && is_array( $aggregate['items'] ),
+			'date'        => $generated ? date_i18n( get_option( 'date_format' ), $generated ) : '',
+			'site'        => html_entity_decode( get_bloginfo( 'name' ), ENT_QUOTES, 'UTF-8' ),
+			'host'        => (string) wp_parse_url( home_url(), PHP_URL_HOST ),
+			'total'       => $total,
+			'score'       => $score,
+			'top_three'   => min( 100, round( $score + $top_three_points, 1 ) ),
+			'issues'      => $total ? round( (int) $aggregate['issues_sum'] / $total, 1 ) : 0.0,
+			'buckets'     => array_map( 'intval', (array) ( $aggregate['buckets'] ?? array( 0, 0, 0, 0 ) ) ),
+			'checks'      => $checks,
+			'types'       => $types,
+			'worst'       => array_values( (array) ( $aggregate['worst'] ?? array() ) ),
+			'urls'        => array(
+				'n'     => (int) ( $aggregate['url_n'] ?? 0 ),
+				'avg'   => ! empty( $aggregate['url_n'] ) ? (int) round( $aggregate['url_sum'] / $aggregate['url_n'] ) : 0,
+				'bands' => array_map( 'intval', (array) ( $aggregate['url_bands'] ?? array( 0, 0, 0, 0 ) ) ),
+				'ok'    => BSM_Health::URL_OK,
+				'max'   => BSM_Health::URL_MAX,
+				'long'  => array_values( (array) ( $aggregate['url_long'] ?? array() ) ),
+			),
 		);
 	}
 

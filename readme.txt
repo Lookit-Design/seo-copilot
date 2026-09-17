@@ -4,7 +4,7 @@ Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.46.2
+Stable tag: 3.50.1
 License: GPL-2.0+
 Author: Lookit Design
 Author URI: https://lookitai.com
@@ -46,6 +46,11 @@ This plugin can also connect to a separate Lookit platform webhook (self-hosted 
 * [Vadim] add/verify auth on the vision webhook, rate-limit the generate endpoint, and finalize vendor ToS/Privacy links before WP.org submission.
 
 == Changelog ==
+
+= 3.50.1 =
+* Added per-user Task Manager lists from Impact Simulator selections, with bounded report item references and progress tracking.
+* Added URL slug suggestions, safe 301 fallback integration, URL-length auditing, report distribution, and longest-address panels.
+* Kept Task Manager nonce verification inline for Plugin Check.
 
 = 3.46.2 =
 * Added Website Report and Impact Simulator views with exact check-weight projections and batched site auditing.

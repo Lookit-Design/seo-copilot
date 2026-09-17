@@ -67,6 +67,12 @@
 						j.data.list.forEach( function ( item ) {
 							if ( btn.bsmSeen.indexOf( item ) === -1 ) { btn.bsmSeen.push( item ); }
 						} );
+						if ( j.data.kind === 'slug' ) {
+							bsmRenderSlugs( out, j.data.list, btn );
+							btn.textContent = 'Generate again';
+							btn.setAttribute( 'data-label', 'Generate again' );
+							return;
+						}
 						if ( j.data.kind === 'keyphrase' || j.data.kind === 'related' ) {
 							bsmRenderKeyphrases( out, j.data.list, j.data.kind, btn );
 							btn.textContent = 'Generate again';
@@ -187,6 +193,121 @@
 
 	document.querySelectorAll( '.bsm-h-rel-list .bsm-h-rel-chip' ).forEach( bsmRelatedRemoveBind );
 	bsmRelatedSync();
+
+	function bsmSlugUrl( permalink, slug ) {
+		if ( ! permalink ) { return ''; }
+		var trailing = permalink.charAt( permalink.length - 1 ) === '/';
+		var base = trailing ? permalink.slice( 0, -1 ) : permalink;
+		var cut = base.lastIndexOf( '/' );
+		return cut === -1 ? permalink : base.slice( 0, cut + 1 ) + slug + ( trailing ? '/' : '' );
+	}
+
+	function bsmRenderSlugs( out, list, btn ) {
+		var link = btn.getAttribute( 'data-permalink' ) || '';
+		var host = btn.getAttribute( 'data-host' ) || 'WordPress';
+		var picked = list[0];
+		var chips = document.createElement( 'div' );
+		chips.className = 'bsm-h-kp-chips';
+		list.forEach( function ( slug, index ) {
+			var chip = document.createElement( 'button' );
+			chip.type = 'button';
+			chip.className = 'bsm-h-kp-chip' + ( index === 0 ? ' is-on' : '' );
+			chip.textContent = slug + ' (' + slug.length + ')';
+			chip.addEventListener( 'click', function () {
+				chips.querySelectorAll( '.bsm-h-kp-chip' ).forEach( function ( item ) {
+					item.classList.remove( 'is-on' );
+				} );
+				chip.classList.add( 'is-on' );
+				picked = slug;
+				newCode.textContent = bsmSlugUrl( link, slug );
+			} );
+			chips.appendChild( chip );
+		} );
+		out.appendChild( chips );
+
+		var preview = document.createElement( 'div' );
+		preview.className = 'bsm-h-slug-prev';
+		var oldCode = document.createElement( 'code' );
+		oldCode.textContent = link;
+		var newCode = document.createElement( 'code' );
+		newCode.textContent = bsmSlugUrl( link, picked );
+		var oldRow = document.createElement( 'div' );
+		oldRow.className = 'bsm-h-slug-row is-old';
+		oldRow.innerHTML = '<span class="bsm-h-slug-lbl">Was</span>';
+		oldRow.appendChild( oldCode );
+		var newRow = document.createElement( 'div' );
+		newRow.className = 'bsm-h-slug-row is-new';
+		newRow.innerHTML = '<span class="bsm-h-slug-lbl">Now</span>';
+		newRow.appendChild( newCode );
+		preview.appendChild( oldRow );
+		preview.appendChild( newRow );
+
+		var redirectLabel = document.createElement( 'label' );
+		redirectLabel.className = 'bsm-h-slug-redir';
+		var checkbox = document.createElement( 'input' );
+		checkbox.type = 'checkbox';
+		checkbox.checked = true;
+		var description = document.createElement( 'span' );
+		var title = document.createElement( 'b' );
+		title.textContent = 'Redirect the old address (301)';
+		var note = document.createElement( 'div' );
+		note.className = 'bsm-h-slug-note';
+		note.textContent = host === 'WordPress'
+			? 'Handled by WordPress core old-slug redirects.'
+			: 'Written to ' + host + ', where this site manages redirects.';
+		description.appendChild( title );
+		description.appendChild( note );
+		redirectLabel.appendChild( checkbox );
+		redirectLabel.appendChild( description );
+		preview.appendChild( redirectLabel );
+		out.appendChild( preview );
+
+		var apply = document.createElement( 'button' );
+		apply.type = 'button';
+		apply.className = 'button button-small';
+		apply.textContent = 'Apply slug';
+		var message = document.createElement( 'span' );
+		message.className = 'bsm-h-kp-msg';
+		apply.addEventListener( 'click', function () {
+			apply.disabled = true;
+			apply.textContent = 'Applying…';
+			message.textContent = '';
+			var data = new FormData();
+			data.append( 'action', 'bsm_health_apply_slug' );
+			data.append( 'nonce', BSM_HEALTH.slug_nonce );
+			data.append( 'post_id', btn.getAttribute( 'data-post' ) );
+			data.append( 'slug', picked );
+			data.append( 'redirect', checkbox.checked ? '1' : '0' );
+			fetch( BSM_HEALTH.ajax_url, { method: 'POST', credentials: 'same-origin', body: data } )
+				.then( function ( response ) { return response.json(); } )
+				.then( function ( result ) {
+					apply.disabled = false;
+					apply.textContent = 'Apply slug';
+					if ( ! result || ! result.success ) {
+						message.textContent = ' ' + ( result && result.data ? String( result.data ) : 'Could not change the slug.' );
+						return;
+					}
+					link = result.data.permalink;
+					btn.setAttribute( 'data-permalink', link );
+					btn.setAttribute( 'data-slug', result.data.slug );
+					oldCode.textContent = link;
+					newCode.textContent = link;
+					message.textContent = result.data.redirect
+						? ' Slug changed. 301 added in ' + result.data.host + '.'
+						: ' Slug changed without an explicit redirect.';
+					if ( result.data.taken ) {
+						message.textContent += ' The final slug is ' + result.data.slug + '.';
+					}
+				} )
+				.catch( function () {
+					apply.disabled = false;
+					apply.textContent = 'Apply slug';
+					message.textContent = ' Request failed.';
+				} );
+		} );
+		out.appendChild( apply );
+		out.appendChild( message );
+	}
 
 	// Render keyphrase suggestions as pickable chips.
 	// Focus keyphrase: one click drops the phrase into the Edit SEO fields input.

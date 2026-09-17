@@ -94,6 +94,9 @@ jobs:
       - name: Run PHPUnit
         run: vendor/bin/phpunit
 
+      - name: Run JavaScript unit tests
+        run: node tests/test-reports-progress.js
+
 
   # Single stable status check that summarises the whole matrix above, so
   # branch protection can require one name ("Test") instead of every cell.

@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.46.2
+ * Version:      3.50.1
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.46.2' );
+define( 'BSM_VERSION', '3.50.1' );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -46,7 +46,12 @@ add_action( 'wp_ajax_bsm_health_save', array( 'BSM_Health', 'ajax_save' ) );
 add_action( 'wp_ajax_bsm_health_alt_generate', array( 'BSM_Health', 'ajax_alt_generate' ) );
 add_action( 'wp_ajax_bsm_health_alt_save', array( 'BSM_Health', 'ajax_alt_save' ) );
 add_action( 'wp_ajax_bsm_health_apply_related', array( 'BSM_Health', 'ajax_apply_related' ) );
+add_action( 'wp_ajax_bsm_health_apply_slug', array( 'BSM_Health', 'ajax_apply_slug' ) );
 add_action( 'wp_ajax_bsm_report_scan', array( 'BSM_Reports', 'ajax_scan' ) );
+add_action( 'wp_ajax_bsm_task_items', array( 'BSM_Tasks', 'ajax_items' ) );
+add_action( 'wp_ajax_bsm_task_set', array( 'BSM_Tasks', 'ajax_set' ) );
+add_action( 'wp_ajax_bsm_task_toggle', array( 'BSM_Tasks', 'ajax_toggle' ) );
+add_action( 'wp_ajax_bsm_task_reset', array( 'BSM_Tasks', 'ajax_reset' ) );
 // Focus tab: pre-render routing (pin the focused post in the URL, handle skips)
 // and the Settings skip-list manager.
 add_action( 'admin_init', 'bsm_remember_tab', 5 );
@@ -79,6 +84,7 @@ require_once ASY_PLUGIN_DIR . 'includes/class-asy-settings.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-processor.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-health.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-reports.php';
+require_once ASY_PLUGIN_DIR . 'includes/class-bsm-tasks.php';
 
 // The processor (publish hooks, reprocess AJAX, lock metabox) runs as-is.
 add_action( 'plugins_loaded', array( 'ASY_Processor', 'init' ) );
@@ -2820,9 +2826,22 @@ function bsm_enqueue_assets( $hook ): void {
 			'bsm-reports',
 			'BSM_REPORT',
 			array(
-				'ajax_url' => admin_url( 'admin-ajax.php' ),
-				'nonce'    => wp_create_nonce( 'bsm_report_scan' ),
-				'snapshot' => BSM_Reports::payload( BSM_Reports::snapshot() ),
+				'ajax_url'     => admin_url( 'admin-ajax.php' ),
+				'nonce'        => wp_create_nonce( 'bsm_report_scan' ),
+				'snapshot'     => BSM_Reports::payload( BSM_Reports::snapshot() ),
+				'tasks'        => BSM_Tasks::state(),
+				'tasks_url'    => add_query_arg(
+					array(
+						'page' => 'lookit-bulk-seo',
+						'tab'  => 'reports',
+						'view' => 'tasks',
+					),
+					admin_url( 'admin.php' )
+				),
+				'set_nonce'    => wp_create_nonce( 'bsm_task_set' ),
+				'items_nonce'  => wp_create_nonce( 'bsm_task_items' ),
+				'toggle_nonce' => wp_create_nonce( 'bsm_task_toggle' ),
+				'reset_nonce'  => wp_create_nonce( 'bsm_task_reset' ),
 			)
 		);
 	}
@@ -2839,6 +2858,7 @@ function bsm_enqueue_assets( $hook ): void {
 				'nonce'      => wp_create_nonce( 'bsm_health_suggest' ),
 				'save_nonce' => wp_create_nonce( 'bsm_health_save' ),
 				'alt_nonce'  => wp_create_nonce( 'bsm_health_alt' ),
+				'slug_nonce' => wp_create_nonce( 'bsm_health_slug' ),
 			)
 		);
 	}
@@ -2858,6 +2878,7 @@ function bsm_enqueue_assets( $hook ): void {
 				'nonce'      => wp_create_nonce( 'bsm_health_suggest' ),
 				'save_nonce' => wp_create_nonce( 'bsm_health_save' ),
 				'alt_nonce'  => wp_create_nonce( 'bsm_health_alt' ),
+				'slug_nonce' => wp_create_nonce( 'bsm_health_slug' ),
 			)
 		);
 	}
