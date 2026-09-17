@@ -60,8 +60,8 @@ class ASY_Settings {
 		if ( '' === $key ) {
 			return (string) get_option( 'asy_openrouter_api_key', '' );
 		}
-		update_option( 'asy_openrouter_api_key', $key );
-		$this->maybe_disable_autoload();
+		delete_option( 'asy_openrouter_api_key' );
+		add_option( 'asy_openrouter_api_key', $key, '', false );
 		return $key;
 	}
 
@@ -91,12 +91,12 @@ class ASY_Settings {
 		foreach ( $input as $post_type => $data ) {
 			$pt = sanitize_key( $post_type );
 
-			$kp_allowed  = array( 'ai', 'title', 'title_short', 'slug', 'slug_short', 'topword' );
+			$kp_allowed  = array( 'off', 'ai', 'title', 'title_short', 'slug', 'slug_short', 'topword' );
 			$rel_allowed = array( 'off', 'datamuse', 'ai' );
-			$kp_src      = isset( $data['keyphrase_source'] ) ? sanitize_key( $data['keyphrase_source'] ) : 'title';
+			$kp_src      = isset( $data['keyphrase_source'] ) ? sanitize_key( $data['keyphrase_source'] ) : 'off';
 			$rel_src     = isset( $data['related_source'] ) ? sanitize_key( $data['related_source'] ) : 'off';
 			if ( ! in_array( $kp_src, $kp_allowed, true ) ) {
-				$kp_src = 'title'; }
+				$kp_src = 'off'; }
 			if ( ! in_array( $rel_src, $rel_allowed, true ) ) {
 				$rel_src = 'off'; }
 
@@ -115,9 +115,9 @@ class ASY_Settings {
 
 	public function enqueue_assets( $hook ) {
 		// Settings page: full JS + CSS
-		if ( false !== strpos( $hook, 'bulk-keyphrase-manager' ) ) {
-			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
-			wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), ASY_VERSION, true );
+		if ( strpos( $hook, 'bulk-keyphrase-manager' ) !== false ) {
+			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), BSM_VERSION );
+			wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), BSM_VERSION, true );
 			wp_localize_script(
 				'lookit-bsm-admin',
 				'ASY',
@@ -134,7 +134,7 @@ class ASY_Settings {
 		}
 		// Post edit screens: CSS only (for the lock metabox styles)
 		if ( in_array( $hook, array( 'post.php', 'post-new.php' ), true ) ) {
-			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
+			wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), BSM_VERSION );
 		}
 	}
 
@@ -214,8 +214,7 @@ class ASY_Settings {
 		$key    = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
 		$stored = $this->store_openrouter_api_key( $key );
 		if ( '' === $stored ) {
-			wp_send_json_error( 'Empty key.' );
-		}
+			wp_send_json_error( 'Empty key.' ); }
 
 		wp_send_json_success();
 	}
@@ -299,7 +298,7 @@ class ASY_Settings {
 								$kp_source = 'title_short'; } elseif ( $slug_short_kp ) {
 									$kp_source = 'slug_short'; } elseif ( $slug_kp ) {
 									$kp_source = 'slug'; } else {
-															$kp_source = 'title'; }
+															$kp_source = 'off'; }
 						}
 						$rel_source = isset( $row['related_source'] ) ? $row['related_source'] : ( $ai_kp ? 'datamuse' : 'off' );
 						if ( $ai_gen && ! isset( $row['keyphrase_source'] ) ) {
@@ -325,6 +324,7 @@ class ASY_Settings {
 
 						<td class="asy-col-kp">
 							<select class="asy-kp-source asy-select" name="templates[<?php echo esc_attr( $pt_slug ); ?>][keyphrase_source]">
+								<option value="off" <?php selected( $kp_source, 'off' ); ?>>Off</option>
 								<optgroup label="── AI (Amazon Bedrock) ──">
 									<option value="ai" <?php selected( $kp_source, 'ai' ); ?>>&#10022; AI — Nova Lite via platform</option>
 								</optgroup>

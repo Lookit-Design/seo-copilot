@@ -15,6 +15,11 @@ $asy_uninstall_options = array(
 	'bsm_keyphrase_templates',
 	'bsm_title_templates',
 	'bsm_ai_webhook_url',
+	'bsm_vision_webhook_url',
+	'bsm_vision_token',
+	'bsm_alt_prompt',
+	'bsm_focus_skips',
+	'bsm_landing_tab',
 );
 
 if ( is_multisite() ) {

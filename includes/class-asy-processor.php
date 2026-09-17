@@ -45,7 +45,8 @@ class ASY_Processor {
 		}
 	}
 
-	public function on_after_insert( $post_id, $post ) {
+	public function on_after_insert( $post_id, $post, $update, $post_before ) {
+		unset( $update, $post_before );
 		if ( 'publish' !== $post->post_status ) {
 			return;
 		}
@@ -55,14 +56,16 @@ class ASY_Processor {
 		$this->process( $post );
 	}
 
-	public function on_rest_publish( $post ) {
+	public function on_rest_publish( $post, $request ) {
+		unset( $request );
 		if ( 'publish' !== $post->post_status ) {
 			return;
 		}
 		$this->process( $post );
 	}
 
-	public function on_elementor_save( $post_id ) {
+	public function on_elementor_save( $post_id, $data ) {
+		unset( $data );
 		$post = get_post( $post_id );
 		if ( ! $post || 'publish' !== $post->post_status ) {
 			return;
@@ -77,6 +80,9 @@ class ASY_Processor {
 			$post = get_post( $post );
 		}
 		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+		if ( 0 !== get_current_user_id() && ! current_user_can( 'edit_post', $post->ID ) ) {
 			return;
 		}
 		if ( wp_is_post_revision( $post->ID ) || wp_is_post_autosave( $post->ID ) ) {
@@ -100,11 +106,44 @@ class ASY_Processor {
 		$templates = get_option( ASY_OPTION_KEY, array() );
 		$pt        = $post->post_type;
 
-		if ( empty( $templates[ $pt ]['enabled'] ) ) {
+		// Per-post "Auto fill on update" (3.38.0). Lets a single post run Auto SEO
+		// without switching the whole post type on in Auto SEO Manager.
+		$auto_fill = (bool) get_post_meta( $post->ID, '_asy_autofill', true );
+
+		if ( empty( $templates[ $pt ]['enabled'] ) && ! $auto_fill ) {
 			return;
 		}
 
-		$row = $templates[ $pt ];
+		$row = isset( $templates[ $pt ] ) ? (array) $templates[ $pt ] : array();
+
+		// Variation payload: capture what's there now, bump the run counter, and
+		// send both to the AI workflow so each update returns a fresh result.
+		$variation = array();
+		if ( $auto_fill ) {
+			$run = (int) get_post_meta( $post->ID, '_asy_autofill_run', true ) + 1;
+			update_post_meta( $post->ID, '_asy_autofill_run', $run );
+			$variation = array(
+				'variation' => $run,
+				'seed'      => wp_generate_password( 10, false, false ),
+				'previous'  => array(
+					'keyphrase' => (string) get_post_meta( $post->ID, '_yoast_wpseo_focuskw', true ),
+					'related'   => (string) get_post_meta( $post->ID, '_asy_or_keyphrases', true ),
+					'metadesc'  => (string) get_post_meta( $post->ID, '_yoast_wpseo_metadesc', true ),
+					'title'     => (string) get_post_meta( $post->ID, '_yoast_wpseo_title', true ),
+				),
+			);
+
+			// Auto fill prefers AI for all four fields — it's the only source that
+			// can return something different each time. With no webhook configured
+			// it falls through to whatever the post type row already specifies.
+			if ( '' !== trim( (string) get_option( 'bsm_ai_webhook_url', '' ) ) ) {
+				$row['keyphrase_source'] = 'ai';
+				$row['related_source']   = 'ai';
+				$row['template']         = 'ai';
+				$row['title_source']     = 'ai';
+				unset( $row['ai_generate'] );
+			}
+		}
 
 		// Resolve per-field sources (dropdown model), with fallback to the
 		// legacy checkbox keys so older saved settings keep working.
@@ -135,7 +174,7 @@ class ASY_Processor {
 
 		// 1. Focus keyphrase
 		if ( 'ai' === $kp_source && function_exists( 'bsm_ai_call_webhook' ) ) {
-			$kp = bsm_ai_call_webhook( 'keyphrase', $post, $related_n + 1 );
+			$kp = bsm_ai_call_webhook( 'keyphrase', $post, $related_n + 1, '', 0, $variation );
 			if ( ! is_wp_error( $kp ) && ! empty( $kp ) ) {
 				$ai_kp_list = $kp;
 				$primary    = $kp[0];
@@ -165,7 +204,7 @@ class ASY_Processor {
 		if ( 'datamuse' === $rel_source ) {
 			$this->generate_keyphrases( $post );
 		} elseif ( 'ai' === $rel_source && function_exists( 'bsm_ai_call_webhook' ) ) {
-			$list = ( null !== $ai_kp_list ) ? $ai_kp_list : bsm_ai_call_webhook( 'keyphrase', $post, $related_n + 1 );
+			$list = ( null !== $ai_kp_list ) ? $ai_kp_list : bsm_ai_call_webhook( 'keyphrase', $post, $related_n + 1, '', 0, $variation );
 			if ( ! is_wp_error( $list ) && is_array( $list ) && count( $list ) > 1 ) {
 				$related = array_slice( $list, 1, $related_n );
 				ASY_Keyphrase_Engine::save_related_keyphrases( $post->ID, $related, $primary );
@@ -176,7 +215,7 @@ class ASY_Processor {
 
 		// 3. Meta description
 		if ( 'ai' === $desc_tpl && function_exists( 'bsm_ai_call_webhook' ) ) {
-			$desc = bsm_ai_call_webhook( 'metadesc', $post, 1, $primary ); // already length-capped
+			$desc = bsm_ai_call_webhook( 'metadesc', $post, 1, $primary, 0, $variation ); // already length-capped
 			if ( ! is_wp_error( $desc ) && '' !== $desc ) {
 				update_post_meta( $post->ID, '_yoast_wpseo_metadesc', sanitize_text_field( $desc ) );
 			}
@@ -189,7 +228,7 @@ class ASY_Processor {
 		// 4. SEO title
 		$title_src = isset( $row['title_source'] ) ? $row['title_source'] : '';
 		if ( 'ai' === $title_src && function_exists( 'bsm_ai_call_webhook' ) ) {
-			$seo_title = bsm_ai_call_webhook( 'title', $post, 1, $primary );
+			$seo_title = bsm_ai_call_webhook( 'title', $post, 1, $primary, 0, $variation );
 			if ( ! is_wp_error( $seo_title ) && '' !== $seo_title ) {
 				update_post_meta( $post->ID, '_yoast_wpseo_title', sanitize_text_field( $seo_title ) );
 				$this->log( "SEO title (AI) set for post {$post->ID}: {$seo_title}" );
@@ -243,6 +282,9 @@ class ASY_Processor {
 		if ( ! $post instanceof WP_Post ) {
 			wp_send_json_error( "Post {$post_id} not found." );
 		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error( 'Permission denied.' );
+		}
 
 		if ( ! defined( 'WPSEO_VERSION' ) ) {
 			wp_send_json_error( 'Yoast SEO is not active.' );
@@ -282,6 +324,9 @@ class ASY_Processor {
 		if ( ! $post_id ) {
 			wp_send_json_error( 'Invalid post ID.' );
 		}
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error( 'Permission denied.' );
+		}
 
 		wp_send_json_success(
 			array(
@@ -315,7 +360,18 @@ class ASY_Processor {
 	 * Render the lock metabox HTML.
 	 */
 	public function render_lock_metabox( WP_Post $post ) {
-		$locked = (bool) get_post_meta( $post->ID, '_asy_seo_locked', true );
+		$locked     = (bool) get_post_meta( $post->ID, '_asy_seo_locked', true );
+		$auto_fill  = (bool) get_post_meta( $post->ID, '_asy_autofill', true );
+		$runs       = (int) get_post_meta( $post->ID, '_asy_autofill_run', true );
+		$has_ai     = '' !== trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
+		$health_url = add_query_arg(
+			array(
+				'page'       => 'lookit-bulk-seo',
+				'tab'        => 'health',
+				'audit_post' => $post->ID,
+			),
+			admin_url( 'admin.php' )
+		);
 		wp_nonce_field( 'asy_lock_nonce', 'asy_lock_nonce_field' );
 		?>
 		<div class="asy-lock-wrap">
@@ -329,13 +385,65 @@ class ASY_Processor {
 			<p class="asy-lock-hint">
 				<?php esc_html_e( 'When locked, Auto SEO will not overwrite the focus keyphrase, meta description, or related keyphrases on publish.', 'bulk-keyphrase-manager' ); ?>
 			</p>
+
+			<label class="asy-lock-label asy-autofill-label">
+				<input type="checkbox"
+						name="asy_autofill"
+						value="1"
+						<?php checked( $auto_fill ); ?>
+						<?php disabled( $locked ); ?>>
+				<span><?php esc_html_e( 'Auto fill on update', 'bulk-keyphrase-manager' ); ?></span>
+			</label>
+			<p class="asy-lock-hint">
+				<?php esc_html_e( 'Fills the keyphrase, related keyphrases, meta description and SEO title for this page only, without switching the post type on in Auto SEO Manager. Every update generates a fresh set, so update again if you do not like the first result.', 'bulk-keyphrase-manager' ); ?>
+			</p>
+
 			<?php if ( $locked ) : ?>
 				<p class="asy-lock-status asy-lock-status--on">
 					🔒 <?php esc_html_e( 'SEO fields are protected', 'bulk-keyphrase-manager' ); ?>
 				</p>
+			<?php elseif ( $auto_fill ) : ?>
+				<p class="asy-lock-status asy-lock-status--fill">
+					✨
+					<?php
+					if ( $runs > 0 ) {
+						printf(
+							/* translators: %d: number of times auto fill has run on this post. */
+							esc_html( _n( 'Auto fill on, %d run so far', 'Auto fill on, %d runs so far', $runs, 'bulk-keyphrase-manager' ) ),
+							(int) $runs
+						);
+					} else {
+						esc_html_e( 'Auto fill runs on your next update', 'bulk-keyphrase-manager' );
+					}
+					?>
+				</p>
+				<?php if ( ! $has_ai ) : ?>
+					<p class="asy-lock-hint asy-lock-hint--warn">
+						<?php esc_html_e( 'No AI endpoint set in SEO Settings, so auto fill uses the post type rules and results will repeat.', 'bulk-keyphrase-manager' ); ?>
+					</p>
+				<?php endif; ?>
 			<?php else : ?>
 				<p class="asy-lock-status asy-lock-status--off">
 					🔓 <?php esc_html_e( 'Auto SEO is active', 'bulk-keyphrase-manager' ); ?>
+				</p>
+			<?php endif; ?>
+
+			<?php if ( 'auto-draft' !== $post->post_status && current_user_can( 'edit_posts' ) ) : ?>
+				<?php if ( $has_ai ) : ?>
+					<div class="asy-kp-suggest">
+						<button type="button" class="button asy-kp-btn" data-post="<?php echo esc_attr( (string) $post->ID ); ?>">
+							✦ <?php esc_html_e( 'Suggest new focus keyphrase', 'bulk-keyphrase-manager' ); ?>
+						</button>
+						<p class="asy-lock-hint">
+							<?php esc_html_e( 'Auto fill often lands on the same focus keyphrase each time. It picks the phrase your page content supports most strongly, and that answer rarely changes while the copy stays the same. Generate here to see other angles, one at a time, and use one if you prefer it.', 'bulk-keyphrase-manager' ); ?>
+						</p>
+						<div class="asy-kp-out" hidden></div>
+					</div>
+				<?php endif; ?>
+				<p class="asy-lock-links">
+					<a href="<?php echo esc_url( $health_url ); ?>" class="asy-lock-link">
+						<?php esc_html_e( 'Open in SEO Health', 'bulk-keyphrase-manager' ); ?> <span aria-hidden="true">&#8599;</span>
+					</a>
 				</p>
 			<?php endif; ?>
 		</div>
@@ -345,7 +453,8 @@ class ASY_Processor {
 	/**
 	 * Save the lock value from Classic Editor / quick edit.
 	 */
-	public function save_lock_metabox( $post_id ) {
+	public function save_lock_metabox( $post_id, WP_Post $post ) {
+		unset( $post );
 		// Verify nonce
 		if ( ! isset( $_POST['asy_lock_nonce_field'] ) ||
 			! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['asy_lock_nonce_field'] ) ), 'asy_lock_nonce' ) ) {
@@ -363,6 +472,10 @@ class ASY_Processor {
 
 		$locked = ! empty( $_POST['asy_seo_locked'] );
 		update_post_meta( $post_id, '_asy_seo_locked', $locked ? '1' : '' );
+
+		// Auto fill on update (3.38.0). The lock always wins.
+		$auto_fill = ! $locked && ! empty( $_POST['asy_autofill'] );
+		update_post_meta( $post_id, '_asy_autofill', $auto_fill ? '1' : '' );
 	}
 
 	/**
@@ -371,14 +484,19 @@ class ASY_Processor {
 	 */
 	public function save_lock_from_rest( $post, $request ) {
 		$params = $request->get_params();
-		if ( ! isset( $params['meta']['_asy_seo_locked'] ) ) {
-			return;
-		}
 		if ( ! current_user_can( 'edit_post', $post->ID ) ) {
 			return;
 		}
-		$locked = ! empty( $params['meta']['_asy_seo_locked'] );
-		update_post_meta( $post->ID, '_asy_seo_locked', $locked ? '1' : '' );
+
+		if ( isset( $params['meta']['_asy_seo_locked'] ) ) {
+			$locked = ! empty( $params['meta']['_asy_seo_locked'] );
+			update_post_meta( $post->ID, '_asy_seo_locked', $locked ? '1' : '' );
+		}
+		if ( isset( $params['meta']['_asy_autofill'] ) ) {
+			$auto_fill = ! empty( $params['meta']['_asy_autofill'] )
+				&& ! get_post_meta( $post->ID, '_asy_seo_locked', true );
+			update_post_meta( $post->ID, '_asy_autofill', $auto_fill ? '1' : '' );
+		}
 	}
 
 	// ── Template resolution ───────────────────────────────────────────────────
@@ -689,7 +807,7 @@ class ASY_Processor {
 			$score  = ( $freq[ $words[ $i ] ] ?? 1 ) + ( $freq[ $words[ $i + 1 ] ] ?? 1 );
 
 			// Bonus if the bigram appears in the title
-			if ( false !== strpos( $title_lower, $bigram ) ) {
+			if ( strpos( $title_lower, $bigram ) !== false ) {
 				$score *= 1.5;
 			}
 

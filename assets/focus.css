@@ -1,0 +1,20 @@
+/* Lookit SEO Copilot — Focus tab
+   Focus renders the full SEO Health detail (styled by health.css). This file
+   adds only the top control row. Prefixed .bsm-f- to avoid collisions. */
+
+/* Top controls: strategy toggle + Skip, on one row. */
+#bsm-wrap .bsm-f-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+
+#bsm-wrap .bsm-f-strat{display:inline-flex;border:1px solid #dcdcde;border-radius:8px;overflow:hidden;background:#fff}
+#bsm-wrap .bsm-f-strat a{font-size:calc(12.5px * var(--bsm-fs, 1));font-weight:600;color:#646970;padding:9px 16px;cursor:pointer;border-right:1px solid #eceef2;text-decoration:none}
+#bsm-wrap .bsm-f-strat a:last-child{border-right:none}
+#bsm-wrap .bsm-f-strat a:hover{background:#f4f8fc;color:#028673}
+#bsm-wrap .bsm-f-strat a.is-on{background:#028673;color:#fff}
+#bsm-wrap .bsm-f-strat a.is-on:hover{background:#02735f;color:#fff}
+
+#bsm-wrap .bsm-f-skip{display:inline-flex;align-items:center;background:#fff;border:1px solid #dcdcde;color:#646970;font-weight:600;font-size:calc(12.5px * var(--bsm-fs, 1));padding:9px 16px;border-radius:8px;text-decoration:none}
+#bsm-wrap .bsm-f-skip:hover{border-color:#028673;color:#028673}
+
+#bsm-wrap .bsm-f-scope{font-size:calc(11.5px * var(--bsm-fs, 1));color:#8b96a8;margin:0 0 18px}
+
+#bsm-wrap .bsm-f-empty{background:#fff;border:1px dashed #dcdcde;border-radius:10px;padding:34px;text-align:center;color:#8b96a8;font-size:calc(13px * var(--bsm-fs, 1));max-width:720px}

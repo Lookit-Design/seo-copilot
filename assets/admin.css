@@ -477,6 +477,39 @@
     color: #1a6329;
     border: 1px solid #b8e6be;
 }
+.asy-lock-status--fill {
+    background: #e6f5f2;
+    color: #016155;
+    border: 1px solid #9ad5cb;
+}
+.asy-autofill-label {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+}
+.asy-lock-label input[type="checkbox"]:disabled + span {
+    color: #8c8f94;
+}
+.asy-lock-hint--warn {
+    color: #7a4f00;
+    margin-top: 6px;
+}
+.asy-lock-links {
+    margin: 10px 0 0;
+    padding-top: 10px;
+    border-top: 1px solid #e0e0e0;
+}
+.asy-lock-link {
+    color: #028673;
+    font-weight: 600;
+    font-size: calc(12px * var(--bsm-fs, 1));
+    text-decoration: none;
+}
+.asy-lock-link:hover,
+.asy-lock-link:focus {
+    color: #016155;
+    text-decoration: underline;
+}
 
 /* Header labels: wrap between words only, never mid-word. */
 .asy-card-header > span {
@@ -493,3 +526,58 @@
 .asy-save-state.is-saving { color:#646970; }
 .asy-save-state.is-saved  { color:#028673; }
 .asy-save-state.is-error  { color:#d63638; font-weight:600; }
+
+/* Auto SEO metabox: suggest a different focus keyphrase, one at a time. */
+.asy-kp-suggest {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #e0e0e0;
+}
+.asy-kp-suggest .asy-kp-btn {
+    width: 100%;
+    justify-content: center;
+}
+.asy-kp-suggest .asy-lock-hint {
+    margin-top: 8px;
+}
+.asy-kp-out {
+    margin-top: 10px;
+    padding: 11px 12px;
+    border: 1px solid rgba(2,134,115,.35);
+    background: rgba(2,134,115,.07);
+    border-radius: 7px;
+}
+.asy-kp-out--err {
+    border-color: #f3c6c6;
+    background: #fcecec;
+    color: #a12626;
+    font-size: calc(12px * var(--bsm-fs, 1));
+}
+.asy-kp-chip {
+    font-weight: 600;
+    font-size: calc(13.5px * var(--bsm-fs, 1));
+    line-height: 1.35;
+    color: #1c2333;
+}
+.asy-kp-actions {
+    display: flex;
+    gap: 7px;
+    margin-top: 9px;
+    flex-wrap: wrap;
+}
+.asy-kp-out .asy-lock-hint {
+    margin: 8px 0 0;
+}
+.asy-kp-title {
+    margin: 0 0 6px;
+    font-weight: 600;
+    font-size: calc(13px * var(--bsm-fs, 1));
+    color: #1d2327;
+    line-height: 1.3;
+}
+
+/* WP's .button sets display:inline-block, which overrides the browser's
+   [hidden] rule, so the suggest button needs this to actually hide. */
+.asy-kp-suggest .asy-kp-btn[hidden] {
+    display: none !important;
+}
