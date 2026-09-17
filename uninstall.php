@@ -30,10 +30,14 @@ if ( is_multisite() ) {
 		foreach ( $asy_uninstall_options as $asy_uninstall_option ) {
 			delete_option( $asy_uninstall_option );
 		}
+		delete_metadata( 'user', 0, 'bsm_task_checks', '', true );
+		delete_metadata( 'user', 0, 'bsm_task_done', '', true );
 		restore_current_blog();
 	}
 } else {
 	foreach ( $asy_uninstall_options as $asy_uninstall_option ) {
 		delete_option( $asy_uninstall_option );
 	}
+	delete_metadata( 'user', 0, 'bsm_task_checks', '', true );
+	delete_metadata( 'user', 0, 'bsm_task_done', '', true );
 }

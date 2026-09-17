@@ -127,6 +127,16 @@
 #bsm-wrap .bsm-h-kp-chip.is-on{background:#028673;border-color:#028673;color:#fff}
 #bsm-wrap .bsm-h-kp-note{color:#4e5a6e;font-size:calc(12px * var(--bsm-fs, 1));margin-bottom:8px}
 #bsm-wrap .bsm-h-kp-msg{margin-left:8px;font-size:calc(12px * var(--bsm-fs, 1));color:#1a6329}
+#bsm-wrap .bsm-h-slug-prev{background:#fff;border:1px solid #d7e2e0;border-radius:8px;padding:11px 13px;margin:2px 0 10px}
+#bsm-wrap .bsm-h-slug-row{display:flex;gap:9px;align-items:baseline;padding:3px 0}
+#bsm-wrap .bsm-h-slug-lbl{flex:0 0 42px;font-size:calc(11px * var(--bsm-fs, 1));text-transform:uppercase;color:#646970}
+#bsm-wrap .bsm-h-slug-row code{font-size:calc(12.5px * var(--bsm-fs, 1));word-break:break-all;background:none;padding:0}
+#bsm-wrap .bsm-h-slug-row.is-old code{color:#a12626;text-decoration:line-through}
+#bsm-wrap .bsm-h-slug-row.is-new code{color:#0a6b3d;font-weight:600}
+#bsm-wrap .bsm-h-slug-redir{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding-top:9px;border-top:1px dashed #d7e2e0;font-size:calc(12.5px * var(--bsm-fs, 1));cursor:pointer}
+#bsm-wrap .bsm-h-slug-redir input{margin:2px 0 0}
+#bsm-wrap .bsm-h-slug-note{color:#646970;font-size:calc(11.5px * var(--bsm-fs, 1));margin-top:3px}
+#bsm-wrap .chk:target{outline:3px solid rgba(2,134,115,.25);outline-offset:3px}
 
 /* Current related keyphrases (Edit SEO fields) — removable chips. */
 #bsm-wrap .bsm-h-rel-list{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:2px}

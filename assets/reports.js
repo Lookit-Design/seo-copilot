@@ -1,3 +1,27 @@
+function bsmCalculateTaskProgress( checks, doneMap ) {
+	'use strict';
+	var progress = { total: 0, done: 0, percent: 0, points: 0, groups: {} };
+	checks.forEach( function ( check ) {
+		var affected = Math.max( 0, Number( check.affected || 0 ) );
+		var complete = Math.min( affected, Math.max( 0, Number( doneMap[ check.slug ] || 0 ) ) );
+		progress.total += affected;
+		progress.done += complete;
+		progress.points += affected ? Number( check.points || 0 ) * complete / affected : 0;
+		progress.groups[ check.slug ] = {
+			affected: affected,
+			done: complete,
+			percent: affected ? Math.round( 100 * complete / affected ) : 0
+		};
+	} );
+	progress.percent = progress.total ? Math.round( 100 * progress.done / progress.total ) : 0;
+	progress.points = Math.round( progress.points * 10 ) / 10;
+	return progress;
+}
+
+if ( typeof module !== 'undefined' && module.exports ) {
+	module.exports = bsmCalculateTaskProgress;
+}
+
 ( function () {
 	'use strict';
 
@@ -8,11 +32,16 @@
 	var snap = BSM_REPORT.snapshot && BSM_REPORT.snapshot.generated ? BSM_REPORT.snapshot : null;
 	var repEl = document.getElementById( 'bsm-rep-report' );
 	var simEl = document.getElementById( 'bsm-rep-sim' );
+	var taskEl = document.getElementById( 'bsm-rep-tasks' );
 	var runBtn = document.getElementById( 'bsm-rep-run' );
 	var progressEl = document.getElementById( 'bsm-rep-progress' );
 	var fillEl = document.getElementById( 'bsm-rep-fill' );
 	var countEl = document.getElementById( 'bsm-rep-count' );
 	var emptyEl = document.getElementById( 'bsm-rep-empty' );
+	var taskState = BSM_REPORT.tasks || { checks: [], done: {} };
+	var taskPicks = ( taskState.checks || [] ).slice();
+	var taskDone = taskState.done || {};
+	var taskProgress = taskState.progress || { total: 0, done: 0, percent: 0, points: 0, groups: {} };
 
 	function esc( value ) {
 		var element = document.createElement( 'div' );
@@ -130,6 +159,27 @@
 		} );
 		html += '</tbody></table></div></div>';
 
+		if ( snap.urls && snap.urls.n ) {
+			var urls = snap.urls;
+			var maxUrlBand = Math.max.apply( null, urls.bands ) || 1;
+			var urlNames = [ 'Under 30', '30–' + urls.ok, ( urls.ok + 1 ) + '–' + urls.max, 'Over ' + urls.max ];
+			var urlColours = [ '#016155', '#028673', '#c98a12', '#b3453f' ];
+			html += '<div class="bsm-rep-grid bsm-rep-2"><div class="bsm-rep-box"><h3>How long your URLs are</h3>' +
+				'<p class="bsm-rep-lede">Measured on the editable slug.</p><div class="bsm-rep-dist">';
+			urls.bands.forEach( function ( value, index ) {
+				html += '<div class="bsm-rep-distcol"><span class="bsm-rep-distn">' + number( value ) + '</span>' +
+					'<div class="bsm-rep-distbar" style="height:' + Math.max( Math.round( value / maxUrlBand * 100 ), 2 ) +
+					'%;background:' + urlColours[ index ] + '"></div><span class="bsm-rep-distlbl">' + urlNames[ index ] + '</span></div>';
+			} );
+			html += '</div><p class="bsm-rep-foot">Average ' + urls.avg + ' characters across ' + number( urls.n ) + ' addresses.</p></div>' +
+				'<div class="bsm-rep-box"><h3>Longest addresses</h3><table class="bsm-rep-t"><thead><tr><th>Page</th><th class="r">Chars</th></tr></thead><tbody>';
+			urls.long.forEach( function ( item ) {
+				html += '<tr><td><a href="' + esc( item.edit ) + '">' + esc( item.title || '(no title)' ) +
+					'</a><div class="bsm-rep-slug">/' + esc( item.slug ) + '/</div></td><td class="r">' + item.len + '</td></tr>';
+			} );
+			html += '</tbody></table></div></div>';
+		}
+
 		if ( snap.worst.length ) {
 			html += '<div class="bsm-rep-grid"><div class="bsm-rep-box"><h3>Pages needing attention first</h3>' +
 				'<p class="bsm-rep-lede">The lowest-scoring editable published items.</p><table class="bsm-rep-t"><thead><tr><th>Page</th><th>Type</th><th class="r">Score</th><th class="r">Issues</th></tr></thead><tbody>';
@@ -174,9 +224,11 @@
 			'<div class="bsm-rep-simstat"><span>Items touched</span><b id="bsm-sim-items">0</b></div>' +
 			'<div class="bsm-rep-simstat"><span>Rough effort</span><b id="bsm-sim-effort">—</b></div>' +
 			'<div class="bsm-rep-simstat"><span>Grade</span><b id="bsm-sim-grade">' + grade( snap.score ).text +
-			'</b></div><p class="bsm-rep-foot">Points project the on-page score, not traffic.</p></div><div class="bsm-rep-simlist">';
+			'</b></div><button type="button" class="button button-primary bsm-rep-start" id="bsm-sim-start" disabled>Start tasks</button>' +
+			'<p class="bsm-rep-foot">Points project the on-page score, not traffic.</p></div><div class="bsm-rep-simlist">';
 		snap.checks.forEach( function ( check, index ) {
-			html += '<label class="bsm-rep-fix"><input type="checkbox" data-index="' + index + '">' +
+			var selected = check.slug && taskPicks.indexOf( check.slug ) > -1;
+			html += '<label class="bsm-rep-fix' + ( selected ? ' on' : '' ) + '"><input type="checkbox" data-index="' + index + '"' + ( selected ? ' checked' : '' ) + '>' +
 				'<span class="bsm-rep-fixmain"><span class="t">' + esc( check.label ) + '</span><span class="d">' +
 				number( check.affected ) + ' item' + ( check.affected === 1 ? '' : 's' ) + ' affected · ' +
 				number( check.fail ) + ' failing, ' + number( check.warn ) + ' flagged</span></span>' +
@@ -190,6 +242,7 @@
 			var points = 0;
 			var items = 0;
 			var efforts = [];
+			var chosen = [];
 			boxes.forEach( function ( checkbox ) {
 				var check = snap.checks[ Number( checkbox.dataset.index ) ];
 				checkbox.closest( '.bsm-rep-fix' ).classList.toggle( 'on', checkbox.checked );
@@ -197,6 +250,9 @@
 					points += Number( check.points );
 					items += Number( check.affected );
 					efforts.push( effortFor( check.label ) );
+					if ( check.slug ) {
+						chosen.push( check.slug );
+					}
 				}
 			} );
 			var score = Math.min( 100, Math.round( ( Number( snap.score ) + points ) * 10 ) / 10 );
@@ -206,11 +262,140 @@
 			document.getElementById( 'bsm-sim-effort' ).textContent = ! efforts.length ? '—' :
 				efforts.indexOf( 'Writing' ) > -1 ? 'Weeks' : efforts.indexOf( 'Editor' ) > -1 ? 'Days' : 'An afternoon';
 			document.getElementById( 'bsm-sim-grade' ).textContent = grade( score ).text;
+			var start = document.getElementById( 'bsm-sim-start' );
+			start.disabled = ! chosen.length;
+			start.dataset.checks = chosen.join( ',' );
 		}
 		boxes.forEach( function ( checkbox ) {
 			checkbox.addEventListener( 'change', recalculate );
 		} );
+		document.getElementById( 'bsm-sim-start' ).addEventListener( 'click', function ( event ) {
+			var start = event.currentTarget;
+			start.disabled = true;
+			postTask( 'bsm_task_set', BSM_REPORT.set_nonce, { checks: start.dataset.checks || '' } )
+				.then( function ( result ) {
+					if ( ! result || ! result.success ) {
+						throw new Error( 'Task list failed.' );
+					}
+					window.location.href = BSM_REPORT.tasks_url;
+				} )
+				.catch( function () {
+					start.disabled = false;
+				} );
+		} );
 		recalculate();
+	}
+
+	function postTask( action, nonce, fields ) {
+		var body = new FormData();
+		body.append( 'action', action );
+		body.append( 'nonce', nonce );
+		Object.keys( fields || {} ).forEach( function ( key ) {
+			body.append( key, fields[ key ] );
+		} );
+		return fetch( BSM_REPORT.ajax_url, { method: 'POST', credentials: 'same-origin', body: body } )
+			.then( function ( response ) { return response.json(); } );
+	}
+
+	function renderTasks() {
+		if ( ! taskEl || ! snap ) {
+			return;
+		}
+		var checks = snap.checks.filter( function ( check ) {
+			return check.slug && taskPicks.indexOf( check.slug ) > -1;
+		} );
+		var html = '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">Task manager</div><h2>Your task list</h2>' +
+			'<div class="bsm-rep-sub">Selected fixes grouped by check. Progress is stored only for your user.</div></div></div>';
+		if ( ! snap.tasks_ready ) {
+			taskEl.innerHTML = html + '<div class="bsm-rep-empty"><h2>Re-run the website audit</h2>' +
+				'<p>This report predates Task Manager and does not contain the bounded page list needed to build tasks.</p></div>';
+			return;
+		}
+		if ( ! checks.length ) {
+			taskEl.innerHTML = html + '<div class="bsm-rep-empty"><h2>Nothing on the list yet</h2>' +
+				'<p>Select fixes in the Impact Simulator to build a task list.</p></div>';
+			return;
+		}
+		taskProgress = bsmCalculateTaskProgress( checks, taskDone );
+		var total = Number( taskProgress.total || 0 );
+		var done = Number( taskProgress.done || 0 );
+		var points = Number( taskProgress.points || 0 );
+		var percent = Number( taskProgress.percent || 0 );
+		html += '<div class="bsm-rep-grid bsm-rep-hero bsm-rep-simgrid"><div class="bsm-rep-box bsm-rep-simpanel">' +
+			'<div class="bsm-rep-ring"><b>' + percent + '%</b><span> complete</span></div>' +
+			'<div class="bsm-rep-simstat"><span>Items on list</span><b>' + number( total ) + '</b></div>' +
+			'<div class="bsm-rep-simstat"><span>Finished</span><b>' + number( done ) + '</b></div>' +
+			'<div class="bsm-rep-simstat"><span>Points banked</span><b>+' + ( Math.round( points * 10 ) / 10 ) + '</b></div>' +
+			'<button type="button" class="button bsm-task-reset">Clear finished ticks</button></div><div class="bsm-rep-tasklist">';
+		checks.forEach( function ( check, index ) {
+			var groupProgress = taskProgress.groups[ check.slug ] || { done: 0, percent: 0 };
+			var complete = Number( groupProgress.done || 0 );
+			var percentDone = Number( groupProgress.percent || 0 );
+			var capNote = Number( check.listed || 0 ) < Number( check.affected || 0 )
+				? '<span class="bsm-rep-capnote">Showing ' + number( check.listed ) + ' of ' + number( check.affected ) + ' affected pages. Re-run the audit after this batch.</span>'
+				: '';
+			html += '<details class="bsm-rep-task" data-check="' + esc( check.slug ) + '"' + ( index === 0 ? ' open' : '' ) + '>' +
+				'<summary><b>' + esc( check.label ) + '</b><span>' + complete + ' of ' + number( check.affected ) + ' done</span>' +
+				'<i style="width:' + percentDone + '%"></i></summary><div class="bsm-rep-taskrows"></div>' +
+				capNote + '<button type="button" class="button bsm-rep-more" hidden>Show 25 more</button></details>';
+		} );
+		taskEl.innerHTML = html + '</div></div>';
+		taskEl.querySelectorAll( '.bsm-rep-task' ).forEach( function ( group ) {
+			function load( offset ) {
+				postTask( 'bsm_task_items', BSM_REPORT.items_nonce, { check: group.dataset.check, offset: offset } )
+					.then( function ( result ) {
+						if ( ! result || ! result.success ) { return; }
+						var rows = group.querySelector( '.bsm-rep-taskrows' );
+						result.data.items.forEach( function ( item ) {
+							var row = document.createElement( 'label' );
+							row.className = 'bsm-rep-item' + ( item.done ? ' is-done' : '' );
+							row.innerHTML = '<input type="checkbox"' + ( item.done ? ' checked' : '' ) + '><span>' +
+								esc( item.title || '(no title)' ) + '</span><a href="' + esc( item.url ) +
+								'" target="_blank" rel="noopener">Open in SEO Health</a>';
+							row.querySelector( 'input' ).addEventListener( 'change', function ( event ) {
+								var checked = event.currentTarget.checked;
+								postTask( 'bsm_task_toggle', BSM_REPORT.toggle_nonce, {
+									check: group.dataset.check,
+									post: item.id,
+									done: checked ? 1 : 0
+								} ).then( function ( toggled ) {
+									if ( toggled && toggled.success ) {
+										taskDone = toggled.data.done || {};
+										taskProgress = toggled.data.progress || taskProgress;
+										renderTasks();
+									}
+								} );
+							} );
+							rows.appendChild( row );
+						} );
+						var more = group.querySelector( '.bsm-rep-more' );
+						more.hidden = ! result.data.more;
+						more.dataset.offset = result.data.next;
+					} );
+			}
+			group.querySelector( '.bsm-rep-more' ).addEventListener( 'click', function ( event ) {
+				load( Number( event.currentTarget.dataset.offset || 0 ) );
+			} );
+			if ( group.open ) {
+				group.dataset.loaded = '1';
+				load( 0 );
+			}
+			group.addEventListener( 'toggle', function () {
+				if ( group.open && ! group.dataset.loaded ) {
+					group.dataset.loaded = '1';
+					load( 0 );
+				}
+			} );
+		} );
+		taskEl.querySelector( '.bsm-task-reset' ).addEventListener( 'click', function () {
+			postTask( 'bsm_task_reset', BSM_REPORT.reset_nonce, {} ).then( function ( result ) {
+				if ( result && result.success ) {
+					taskDone = result.data.done || {};
+					taskProgress = result.data.progress || taskProgress;
+					renderTasks();
+				}
+			} );
+		} );
 	}
 
 	function scan( phase, offset, scanId ) {
@@ -250,6 +435,7 @@
 					document.getElementById( 'bsm-rep-stamp' ).textContent = 'Last run just now';
 					renderReport();
 					renderSimulator();
+					renderTasks();
 					return;
 				}
 				scan( data.phase, data.offset, data.scan_id );
@@ -274,4 +460,5 @@
 
 	renderReport();
 	renderSimulator();
+	renderTasks();
 } )();
