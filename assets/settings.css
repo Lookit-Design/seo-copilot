@@ -234,3 +234,15 @@
 #bsm-wrap .bsm-set-size.is-active .bsm-set-size-demo { color:#028673; }
 #bsm-wrap .bsm-set-size-label { font-size:calc(13px * var(--bsm-fs, 1)); font-weight:600; color:#1d2327; }
 #bsm-wrap .bsm-set-size-note  { font-size:calc(11.5px * var(--bsm-fs, 1)); color:#646970; }
+
+/* AI engine — vision endpoint additions */
+#bsm-wrap .bsm-set-rule{border:0;border-top:1px solid #e2e6ee;margin:22px 0 18px}
+#bsm-wrap .bsm-set-tag{display:inline-block;margin-left:6px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#7a2baa;background:#f3e8fc;padding:2px 7px;border-radius:4px;vertical-align:middle}
+#bsm-wrap .bsm-set-optional{margin-left:6px;font-size:11px;font-weight:400;color:#8b96a8;text-transform:none;letter-spacing:0}
+
+/* ── Focus skip manager (Settings → Focus) ─────────────────────────────── */
+#bsm-wrap .bsm-focus-skiplist{list-style:none;margin:6px 0 16px;padding:0;border:1px solid #e2e6ee;border-radius:9px;overflow:hidden;max-width:620px}
+#bsm-wrap .bsm-focus-skiprow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-bottom:1px solid #f0f1f3}
+#bsm-wrap .bsm-focus-skiprow:last-child{border-bottom:none}
+#bsm-wrap .bsm-focus-skiprow label{display:flex;align-items:center;gap:9px;font-size:calc(13px * var(--bsm-fs, 1));color:#1c2333;cursor:pointer;min-width:0}
+#bsm-wrap .bsm-focus-skiprow label span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

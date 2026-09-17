@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.34.2
+ * Version:      3.45.2
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.34.2' );
+define( 'BSM_VERSION', '3.45.2' );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -23,9 +23,11 @@ define( 'BSM_META_TITLE', '_yoast_wpseo_title' );
 define( 'BSM_PER_PAGE', 25 );
 define( 'BSM_DESC_LO', 107 );
 define( 'BSM_DESC_HI', 141 );
+define( 'BSM_TITLE_MAX', 55 );  // hard cap for AI-generated SEO titles
 
 add_action( 'admin_menu', 'bsm_register_menu' );
 add_action( 'admin_init', 'bsm_handle_save' );
+add_action( 'admin_init', 'bsm_disable_secret_autoload' );
 add_action( 'admin_enqueue_scripts', 'bsm_enqueue_assets' );
 add_action( 'wp_ajax_bsm_save_single', 'bsm_ajax_save_single' );
 add_action( 'wp_ajax_bsm_save_all', 'bsm_ajax_save_all' );
@@ -34,11 +36,21 @@ add_action( 'wp_ajax_bsm_get_desc_data', 'bsm_ajax_get_desc_data' );
 add_action( 'wp_ajax_bsm_fill_keyphrases', 'bsm_ajax_fill_keyphrases' );
 add_action( 'wp_ajax_bsm_ai_fill', 'bsm_ajax_ai_fill' );
 add_action( 'wp_ajax_bsm_save_ai_webhook', 'bsm_ajax_save_ai_webhook' );
+add_action( 'wp_ajax_bsm_save_vision_webhook', 'bsm_ajax_save_vision_webhook' );
 add_action( 'wp_ajax_bsm_save_kp_count', 'bsm_ajax_save_kp_count' );
+add_action( 'wp_ajax_asy_suggest_keyphrase', 'bsm_ajax_suggest_keyphrase' );
 add_action( 'admin_post_bsm_save_all', 'bsm_handle_save' );
 add_action( 'admin_post_bsm_health_export', array( 'BSM_Health', 'export' ) );
 add_action( 'wp_ajax_bsm_health_suggest', array( 'BSM_Health', 'ajax_suggest' ) );
 add_action( 'wp_ajax_bsm_health_save', array( 'BSM_Health', 'ajax_save' ) );
+add_action( 'wp_ajax_bsm_health_alt_generate', array( 'BSM_Health', 'ajax_alt_generate' ) );
+add_action( 'wp_ajax_bsm_health_alt_save', array( 'BSM_Health', 'ajax_alt_save' ) );
+add_action( 'wp_ajax_bsm_health_apply_related', array( 'BSM_Health', 'ajax_apply_related' ) );
+// Focus tab: pre-render routing (pin the focused post in the URL, handle skips)
+// and the Settings skip-list manager.
+add_action( 'admin_init', 'bsm_remember_tab', 5 );
+add_action( 'admin_init', array( 'BSM_Health', 'route_focus' ) );
+add_action( 'admin_post_bsm_focus_skips', array( 'BSM_Health', 'admin_post_skips' ) );
 
 // ─── Auto SEO Manager engine (merged from "Auto SEO for Yoast" v1.2.5) ───────
 // Brings the on-publish auto-fill engine in as a tab. All Auto SEO option keys,
@@ -49,6 +61,16 @@ define( 'ASY_VERSION', '3.15.3' );
 define( 'ASY_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'ASY_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'ASY_OPTION_KEY', 'asy_post_type_templates' );
+
+function bsm_disable_secret_autoload(): void {
+	$alloptions = wp_load_alloptions();
+	if ( ! isset( $alloptions['bsm_vision_token'] ) ) {
+		return;
+	}
+	$token = get_option( 'bsm_vision_token' );
+	delete_option( 'bsm_vision_token' );
+	add_option( 'bsm_vision_token', $token, '', false );
+}
 
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-keyphrase-engine.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-openrouter.php'; // kept for back-compat
@@ -312,8 +334,8 @@ function bsm_ajax_preview_templates(): void {
 
 	$post_id = absint( $_POST['post_id'] ?? 0 );
 	$post    = $post_id ? get_post( $post_id ) : null;
-	if ( ! $post || ! current_user_can( 'edit_post', $post_id ) ) {
-		wp_send_json_error( 'Invalid post or permission denied.' );
+	if ( ! $post ) {
+		wp_send_json_error( 'Post not found.' );
 	}
 
 	// Remember the chosen sample per user, not site-wide.
@@ -446,8 +468,7 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		unset( $e );
-	}
+		unset( $e ); }
 
 	// ── 2. ACF fields ──
 	try {
@@ -473,8 +494,7 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		unset( $e );
-	}
+		unset( $e ); }
 
 	// ── 3. Meta Box / RWMB ──
 	try {
@@ -500,8 +520,7 @@ function bsm_ajax_get_meta_fields(): void {
 			}
 		}
 	} catch ( \Throwable $e ) {
-		unset( $e );
-	}
+		unset( $e ); }
 
 	// ── 4. WordPress core + Yoast placeholders (always shown) ──
 	$core = array(
@@ -575,13 +594,13 @@ function bsm_ajax_get_meta_fields(): void {
 			// Skip private/internal keys
 			$skip = false;
 			foreach ( $skip_prefixes as $prefix ) {
-				if ( 0 === strpos( $mk, $prefix ) ) {
+				if ( strpos( $mk, $prefix ) === 0 ) {
 					$skip = true;
 					break; }
 			}
 			if ( ! $skip ) {
 				foreach ( $skip_contains as $needle ) {
-					if ( false !== strpos( strtolower( $mk ), $needle ) ) {
+					if ( strpos( strtolower( $mk ), $needle ) !== false ) {
 						$skip = true;
 						break; }
 				}
@@ -600,8 +619,7 @@ function bsm_ajax_get_meta_fields(): void {
 			$already_keys[] = $mk;
 		}
 	} catch ( \Throwable $e ) {
-		unset( $e );
-	}
+		unset( $e ); }
 
 	wp_send_json_success(
 		array(
@@ -654,6 +672,12 @@ function bsm_render_settings() {
 		<?php if ( $saved ) : ?>
 			<div class="notice notice-success is-dismissible"><p>Settings saved.</p></div>
 		<?php endif; ?>
+		<?php
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only flag set by our own redirect.
+		if ( isset( $_GET['focusmsg'] ) && 'cleared' === sanitize_key( wp_unslash( $_GET['focusmsg'] ) ) ) :
+			?>
+			<div class="notice notice-success is-dismissible"><p>Focus skips updated.</p></div>
+		<?php endif; ?>
 
 		<h2 class="bsm-set-h1">Settings</h2>
 		<p class="bsm-set-sub">
@@ -662,8 +686,15 @@ function bsm_render_settings() {
 		</p>
 
 		<?php
-		$bsm_ai_webhook = get_option( 'bsm_ai_webhook_url', '' );
-		$bsm_kp_count   = max( 1, min( 5, (int) get_option( 'asy_kp_count', 3 ) ) );
+		$bsm_ai_webhook     = get_option( 'bsm_ai_webhook_url', '' );
+		$bsm_vision_webhook = get_option( 'bsm_vision_webhook_url', '' );
+		$bsm_vision_hastok  = '' !== trim( (string) get_option( 'bsm_vision_token', '' ) );
+		$bsm_alt_prompt     = (string) get_option(
+			'bsm_alt_prompt',
+			'Write a concise, descriptive alt text for this image. Be specific about what is shown. Keep it under 125 characters. Do not start with "Image of" or "Photo of". Return only the alt text, nothing else.'
+		);
+		$bsm_kp_count       = max( 1, min( 5, (int) get_option( 'asy_kp_count', 3 ) ) );
+		$bsm_landing_tab    = 'last' === get_option( 'bsm_landing_tab', 'health' ) ? 'last' : 'health';
 
 		// Sample post for the preview rail — per user, so one admin's choice
 		// doesn't change what another admin sees.
@@ -680,7 +711,7 @@ function bsm_render_settings() {
 		}
 		$bsm_sample = $bsm_sample_id ? get_post( $bsm_sample_id ) : null;
 
-		$bsm_panes  = array(
+		$bsm_panes = array(
 			'engine'   => array( 'Setup', 'AI engine' ),
 			'defaults' => array( 'Setup', 'Defaults' ),
 			'textsize' => array( 'Setup', 'Text size' ),
@@ -689,8 +720,16 @@ function bsm_render_settings() {
 			'kp'       => array( 'Templates', 'Keyphrases' ),
 			'test'     => array( 'Tools', 'Test &amp; reprocess' ),
 			'fields'   => array( 'Tools', 'Custom fields' ),
+			'focus'    => array( 'Tools', 'Focus' ),
 			'help'     => array( 'Tools', 'How it works' ),
 		);
+		// Which pane opens first. Deep-linkable via ?pane= so redirects (e.g. after
+		// clearing Focus skips) can land on the right section.
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only pane selector.
+		$bsm_active_pane = isset( $_GET['pane'] ) ? sanitize_key( wp_unslash( $_GET['pane'] ) ) : 'engine';
+		if ( ! isset( $bsm_panes[ $bsm_active_pane ] ) ) {
+			$bsm_active_pane = 'engine';
+		}
 		$bsm_counts = array(
 			'title' => count( $title_templates ),
 			'desc'  => count( $templates ),
@@ -713,7 +752,7 @@ function bsm_render_settings() {
 							$bsm_last_group = $bsm_group;
 						}
 						?>
-						<button type="button" class="bsm-set-navbtn<?php echo 'engine' === $bsm_key ? ' is-active' : ''; ?>"
+						<button type="button" class="bsm-set-navbtn<?php echo $bsm_active_pane === $bsm_key ? ' is-active' : ''; ?>"
 								data-pane="<?php echo esc_attr( $bsm_key ); ?>">
 							<span><?php echo wp_kses_post( $bsm_label ); ?></span>
 							<?php if ( isset( $bsm_counts[ $bsm_key ] ) ) : ?>
@@ -727,7 +766,7 @@ function bsm_render_settings() {
 				<div class="bsm-set-main">
 
 					<?php /* ── AI engine ── */ ?>
-					<section class="bsm-set-pane is-active" data-pane="engine">
+					<section class="bsm-set-pane<?php echo 'engine' === $bsm_active_pane ? ' is-active' : ''; ?>" data-pane="engine">
 						<h3>AI engine</h3>
 						<p class="bsm-set-lede">
 							Requests are relayed to Amazon Bedrock through the platform. No API key is stored in WordPress.
@@ -747,6 +786,34 @@ function bsm_render_settings() {
 							<button type="button" class="button button-primary" id="bsm-ai-webhook-save">Save endpoint</button>
 							<span id="bsm-ai-webhook-status" class="bsm-set-status"></span>
 						</p>
+
+						<hr class="bsm-set-rule">
+
+						<label class="bsm-set-label" for="bsm-vision-webhook">Vision endpoint URL <span class="bsm-set-tag">image alt text</span></label>
+						<div class="bsm-set-inline">
+							<input type="url" id="bsm-vision-webhook" value="<?php echo esc_url( $bsm_vision_webhook ); ?>"
+									placeholder="Paste your Bedrock Vision endpoint URL"
+									class="bsm-set-mono">
+							<span class="bsm-set-pill"><span class="bsm-set-dot"></span>No API key required</span>
+						</div>
+						<p class="bsm-set-hint">
+							Used by <strong>image alt text</strong> generation in SEO Health → Media. Points at the
+							Bedrock <em>vision</em> workflow (separate from the text endpoint above). Leave blank to keep
+							the existing “Fix in Lookit Media Master” link instead.
+						</p>
+						<label class="bsm-set-label" for="bsm-vision-token">Vision bearer token <span class="bsm-set-optional">optional</span></label>
+						<div class="bsm-set-inline">
+							<input type="password" id="bsm-vision-token" value=""
+									placeholder="<?php echo $bsm_vision_hastok ? '•••••••• (saved — leave blank to keep)' : 'Only if your n8n webhook requires auth'; ?>"
+									autocomplete="new-password" class="bsm-set-mono">
+						</div>
+						<p class="bsm-set-hint">Sent as a <code>Bearer</code> header to the vision endpoint if your workflow requires it.</p>
+						<label class="bsm-set-label" for="bsm-alt-prompt">Alt text prompt</label>
+						<textarea id="bsm-alt-prompt" rows="3" class="bsm-set-mono"><?php echo esc_textarea( $bsm_alt_prompt ); ?></textarea>
+						<p class="bsm-set-actions">
+							<button type="button" class="button button-primary" id="bsm-vision-webhook-save">Save vision endpoint</button>
+							<span id="bsm-vision-webhook-status" class="bsm-set-status"></span>
+						</p>
 					</section>
 
 					<?php /* ── Defaults ── */ ?>
@@ -762,6 +829,15 @@ function bsm_render_settings() {
 						<p class="bsm-set-hint">
 							How many related keyphrases to add to Yoast on each generate — used by the Bulk Editor
 							Related dropdown and the Auto SEO Manager.
+						</p>
+						<label class="bsm-set-label" for="bsm-landing-tab">Opening tab</label>
+						<select id="bsm-landing-tab" class="bsm-set-narrow">
+							<option value="health" <?php selected( $bsm_landing_tab, 'health' ); ?>>Main (SEO Health)</option>
+							<option value="last" <?php selected( $bsm_landing_tab, 'last' ); ?>>Last page I was on</option>
+						</select>
+						<p class="bsm-set-hint">
+							Which tab opens when you click SEO Copilot in the sidebar. “Last page I was on” is
+							remembered per user, so everyone returns to their own tab.
 						</p>
 						<p class="bsm-set-actions">
 							<button type="button" class="button button-primary" id="bsm-kp-count-save">Save defaults</button>
@@ -942,6 +1018,42 @@ function bsm_render_settings() {
 						<div id="bsm-copy-toast">&#10003; Copied to clipboard!</div>
 					</section>
 
+					<?php /* ── Focus skips ── */ ?>
+					<section class="bsm-set-pane<?php echo 'focus' === $bsm_active_pane ? ' is-active' : ''; ?>" data-pane="focus">
+						<h3><?php esc_html_e( 'Focus', 'bulk-keyphrase-manager' ); ?></h3>
+						<p class="bsm-set-lede">
+							<?php esc_html_e( 'Pages you skip in the Focus tab are hidden from future picks and listed here. Clear them to bring them back into rotation.', 'bulk-keyphrase-manager' ); ?>
+						</p>
+						<?php $bsm_focus_skips = BSM_Health::focus_skips(); ?>
+						<?php if ( ! $bsm_focus_skips ) : ?>
+							<p class="bsm-set-hint"><em><?php esc_html_e( 'No skipped pages yet. When you press "Skip → show another" in the Focus tab, that page appears here.', 'bulk-keyphrase-manager' ); ?></em></p>
+						<?php else : ?>
+							<ul class="bsm-focus-skiplist">
+								<?php
+								foreach ( $bsm_focus_skips as $bsm_sid ) :
+									$bsm_sp = get_post( $bsm_sid );
+									/* translators: %d: post ID of a page that no longer exists. */
+									$bsm_slabel = $bsm_sp ? get_the_title( $bsm_sp ) : sprintf( __( '(deleted item #%d)', 'bulk-keyphrase-manager' ), $bsm_sid );
+									$bsm_sedit  = $bsm_sp ? get_edit_post_link( $bsm_sid, 'raw' ) : '';
+									?>
+									<li class="bsm-focus-skiprow">
+										<label>
+											<input type="checkbox" name="skip_ids[]" value="<?php echo (int) $bsm_sid; ?>" form="bsm-focus-skips-form">
+											<span><?php echo esc_html( $bsm_slabel ); ?></span>
+										</label>
+										<?php if ( $bsm_sedit ) : ?>
+											<a class="bsm-set-link" href="<?php echo esc_url( $bsm_sedit ); ?>" target="_blank" rel="noopener"><?php esc_html_e( 'Edit ↗', 'bulk-keyphrase-manager' ); ?></a>
+										<?php endif; ?>
+									</li>
+								<?php endforeach; ?>
+							</ul>
+							<p class="bsm-set-actions">
+								<button type="submit" class="button" form="bsm-focus-skips-form" name="bsm_focus_mode" value="selected"><?php esc_html_e( 'Clear selected', 'bulk-keyphrase-manager' ); ?></button>
+								<button type="submit" class="button" form="bsm-focus-skips-form" name="bsm_focus_mode" value="all"><?php esc_html_e( 'Clear all skips', 'bulk-keyphrase-manager' ); ?></button>
+							</p>
+						<?php endif; ?>
+					</section>
+
 					<?php /* ── How it works ── */ ?>
 					<section class="bsm-set-pane" data-pane="help">
 						<h3>How it works</h3>
@@ -1005,6 +1117,16 @@ function bsm_render_settings() {
 			</div>
 		</form>
 
+		<?php
+		/* Focus skip manager posts to admin-post.php; kept outside the
+				options.php form above and wired via the controls' form="" attr
+				so we never nest forms. */
+		?>
+		<form id="bsm-focus-skips-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:none;">
+			<input type="hidden" name="action" value="bsm_focus_skips">
+			<?php wp_nonce_field( 'bsm_focus_skips' ); ?>
+		</form>
+
 		<?php /* ── Post picker ── */ ?>
 		<div class="bsm-set-scrim" id="bsm-set-scrim" hidden>
 			<div class="bsm-set-modal" role="dialog" aria-modal="true" aria-labelledby="bsm-picker-h">
@@ -1058,6 +1180,34 @@ function bsm_render_settings() {
 			});
 		})();
 
+		// ── Vision engine: save vision endpoint (+ optional bearer token) ──
+		(function(){
+			var saveBtn = document.getElementById('bsm-vision-webhook-save');
+			if (!saveBtn) return;
+			saveBtn.addEventListener('click', function(){
+				var input = document.getElementById('bsm-vision-webhook');
+				var tok   = document.getElementById('bsm-vision-token');
+				var prompt = document.getElementById('bsm-alt-prompt');
+				var st     = document.getElementById('bsm-vision-webhook-status');
+				var fd = new FormData();
+				fd.append('action','bsm_save_vision_webhook');
+				fd.append('nonce', NONCE);
+				fd.append('url', input ? input.value : '');
+				fd.append('token', tok ? tok.value : '');
+				fd.append('prompt', prompt ? prompt.value : '');
+				if (st){ st.style.display='inline'; st.style.color='#1a8fd1'; st.textContent='Saving…'; }
+				fetch(AJAXURL,{method:'POST',body:fd,credentials:'same-origin'})
+					.then(function(r){ return r.json(); })
+					.then(function(resp){
+						if (!st) return;
+						if (resp && resp.success){ st.style.color='#1da462'; st.textContent='✓ Saved'; if(tok){ tok.value=''; } }
+						else { st.style.color='#d63638'; st.textContent='⚠ '+((resp&&resp.data)?resp.data:'Save failed'); }
+						setTimeout(function(){ st.style.display='none'; }, 2500);
+					})
+					.catch(function(){ if(st){ st.style.color='#d63638'; st.textContent='⚠ Network error'; } });
+			});
+		})();
+
 		// ── Related keyphrase count: save ──
 		(function(){
 			var b = document.getElementById('bsm-kp-count-save');
@@ -1069,6 +1219,8 @@ function bsm_render_settings() {
 				fd.append('action','bsm_save_kp_count');
 				fd.append('nonce', NONCE);
 				fd.append('count', sel ? sel.value : '3');
+				var land = document.getElementById('bsm-landing-tab');
+				fd.append('landing', land ? land.value : 'health');
 				if (st){ st.style.display='inline'; st.style.color='#1a8fd1'; st.textContent='Saving…'; }
 				fetch(AJAXURL,{method:'POST',body:fd,credentials:'same-origin'})
 					.then(function(r){ return r.json(); })
@@ -1486,9 +1638,222 @@ function bsm_ajax_save_ai_webhook() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_send_json_error( 'Permission denied.' );
 	}
-	$url = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ) ) : '';
+	$url = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ), array( 'http', 'https' ) ) : '';
 	update_option( 'bsm_ai_webhook_url', $url );
 	wp_send_json_success( array( 'url' => $url ) );
+}
+
+/**
+ * Save the vision platform webhook URL (option: bsm_vision_webhook_url) and its
+ * optional bearer token (option: bsm_vision_token). Separate from the text
+ * endpoint because alt text is generated by the Bedrock *vision* workflow.
+ * Like the text endpoint, this is a platform URL, NOT an AWS credential.
+ *
+ * The token is only overwritten when a new non-empty value is submitted.
+ */
+function bsm_ajax_save_vision_webhook() {
+	check_ajax_referer( BSM_AJAX_NONCE, 'nonce' );
+	if ( ! current_user_can( 'manage_options' ) ) {
+		wp_send_json_error( 'Permission denied.' );
+	}
+	$url    = isset( $_POST['url'] ) ? wp_unslash( $_POST['url'] ) : '';
+	$token  = isset( $_POST['token'] ) ? wp_unslash( $_POST['token'] ) : '';
+	$prompt = isset( $_POST['prompt'] ) ? wp_unslash( $_POST['prompt'] ) : '';
+	$url    = bsm_store_vision_settings( $url, $token, $prompt );
+	wp_send_json_success( array( 'url' => $url ) );
+}
+
+function bsm_store_vision_settings( $url, $token, $prompt ): string {
+	$url = esc_url_raw( $url, array( 'http', 'https' ) );
+	update_option( 'bsm_vision_webhook_url', $url );
+
+	$token = sanitize_text_field( $token );
+	if ( '' !== $token ) {
+		delete_option( 'bsm_vision_token' );
+		add_option( 'bsm_vision_token', $token, '', false );
+	}
+	update_option( 'bsm_alt_prompt', sanitize_textarea_field( $prompt ) );
+	return $url;
+}
+
+/**
+ * Vision webhook caller — posts an image (base64 data URI) + prompt to the
+ * platform (n8n), which calls AWS Bedrock (Nova Lite vision) and returns
+ * { "text": "..." }. Payload shape matches Lookit Media Master exactly, so the
+ * same published "Bedrock Vision" workflow serves both plugins unchanged.
+ *
+ * @return array{ok:bool,alt?:string,error?:string}
+ */
+function bsm_vision_call( $data_uri, $mime, $prompt ) {
+	$endpoint = trim( (string) get_option( 'bsm_vision_webhook_url', '' ) );
+	if ( '' === $endpoint ) {
+		return array(
+			'ok'    => false,
+			'error' => 'Vision engine not configured — set the vision endpoint in Settings → AI engine.',
+		);
+	}
+	if ( ! in_array( $mime, array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' ), true ) ||
+		0 !== strpos( (string) $data_uri, 'data:' . $mime . ';base64,' ) ) {
+		return array(
+			'ok'    => false,
+			'error' => 'Invalid image payload.',
+		);
+	}
+	$token = trim( (string) get_option( 'bsm_vision_token', '' ) );
+
+	$payload = array(
+		'image'  => $data_uri, // full data URI; n8n strips the "data:...;base64," prefix
+		'mime'   => $mime,
+		'prompt' => $prompt,
+		'site'   => array(
+			'url'  => home_url(),
+			'name' => get_bloginfo( 'name' ),
+		),
+	);
+
+	$headers = array( 'Content-Type' => 'application/json' );
+	if ( '' !== $token ) {
+		$headers['Authorization'] = 'Bearer ' . $token;
+	}
+
+	$resp = wp_remote_post(
+		$endpoint,
+		array(
+			'timeout' => 90,
+			'headers' => $headers,
+			'body'    => wp_json_encode( $payload ),
+		)
+	);
+	if ( is_wp_error( $resp ) ) {
+		return array(
+			'ok'    => false,
+			'error' => $resp->get_error_message(),
+		);
+	}
+
+	$code = (int) wp_remote_retrieve_response_code( $resp );
+	$raw  = wp_remote_retrieve_body( $resp );
+	$body = json_decode( $raw, true );
+
+	if ( 200 !== $code ) {
+		$err = ( is_array( $body ) && isset( $body['error'] ) )
+			? ( is_string( $body['error'] ) ? $body['error'] : wp_json_encode( $body['error'] ) )
+			: ( 'HTTP ' . $code . ': ' . substr( $raw, 0, 160 ) );
+		return array(
+			'ok'    => false,
+			'error' => $err,
+		);
+	}
+
+	// n8n "Respond to Webhook" returns { "text": "..." }. Accept a few key
+	// names defensively in case the workflow response shape changes.
+	$text = '';
+	if ( is_array( $body ) ) {
+		$text = $body['text'] ?? $body['alt'] ?? $body['reply'] ?? $body['output'] ?? '';
+	}
+	if ( ! is_string( $text ) ) {
+		$text = '';
+	}
+	// Strip any <think>…</think> blocks and wrapping quotes some models add.
+	$text = preg_replace( '#<think>.*?</think>#is', '', $text );
+	$text = trim( trim( (string) $text ), "\"'" );
+
+	if ( '' === $text ) {
+		return array(
+			'ok'    => false,
+			'error' => 'Empty response from platform. Raw: ' . substr( $raw, 0, 200 ),
+		);
+	}
+	return array(
+		'ok'  => true,
+		'alt' => $text,
+	);
+}
+
+/**
+ * Suggest one alternative focus keyphrase for a single post, for the Auto SEO
+ * metabox on the post editor.
+ *
+ * Returns a single phrase rather than a list: the metabox is a narrow column,
+ * and one considered option at a time reads better there than a wall of chips.
+ * The client sends what it has already been shown so each press moves on.
+ */
+function bsm_ajax_suggest_keyphrase() {
+	check_ajax_referer( 'asy_kp_suggest', 'nonce' );
+
+	$post_id = absint( $_POST['post_id'] ?? 0 );
+	if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+		wp_send_json_error( 'Permission denied.' );
+	}
+	$post = get_post( $post_id );
+	if ( ! $post instanceof WP_Post ) {
+		wp_send_json_error( 'Post not found.' );
+	}
+	if ( ! function_exists( 'bsm_ai_call_webhook' ) || '' === trim( (string) get_option( 'bsm_ai_webhook_url', '' ) ) ) {
+		wp_send_json_error( 'No AI endpoint set in SEO Settings.' );
+	}
+
+	$attempt = max( 1, absint( $_POST['attempt'] ?? 1 ) );
+	$seen    = isset( $_POST['seen'] )
+		? (array) map_deep( wp_unslash( $_POST['seen'] ), 'sanitize_text_field' )
+		: array();
+	$current = (string) get_post_meta( $post_id, BSM_META_KW, true );
+
+	// A phrase is already saved, so even the first press is asking for an
+	// alternative: send the variation payload from the outset.
+	$variation = $attempt + ( '' !== $current ? 1 : 0 );
+	$extra     = array();
+	if ( $variation > 1 ) {
+		$extra = array(
+			'variation' => $variation,
+			'seed'      => wp_generate_password( 10, false, false ),
+			'previous'  => array(
+				'keyphrase' => $current,
+				'related'   => implode( ', ', array_slice( $seen, -8 ) ),
+				'metadesc'  => '',
+				'title'     => '',
+			),
+		);
+	}
+
+	$list = bsm_ai_call_webhook( 'keyphrase', $post, 5, '', 0, $extra );
+	if ( is_wp_error( $list ) ) {
+		wp_send_json_error( $list->get_error_message() );
+	}
+
+	$normalize = static function ( $phrase ) {
+		$phrase = strtolower( remove_accents( wp_strip_all_tags( (string) $phrase ) ) );
+		return trim( preg_replace( '/\s+/', ' ', preg_replace( '/[^a-z0-9\s]/', ' ', $phrase ) ) );
+	};
+	$skip      = array();
+	foreach ( array_merge( $seen, array( $current ) ) as $s ) {
+		$n = $normalize( $s );
+		if ( '' !== $n ) {
+			$skip[ $n ] = true;
+		}
+	}
+
+	$pick = '';
+	foreach ( (array) $list as $candidate ) {
+		$candidate = trim( sanitize_text_field( $candidate ) );
+		if ( '' === $candidate ) {
+			continue;
+		}
+		if ( ! isset( $skip[ $normalize( $candidate ) ] ) ) {
+			$pick = $candidate;
+			break;
+		}
+	}
+	if ( '' === $pick ) {
+		wp_send_json_error( 'No new angle came back. Try again, or edit the page copy for a different read.' );
+	}
+
+	wp_send_json_success(
+		array(
+			'keyphrase' => $pick,
+			'attempt'   => $attempt,
+		)
+	);
 }
 
 /**
@@ -1502,7 +1867,18 @@ function bsm_ajax_save_kp_count() {
 	}
 	$count = max( 1, min( 5, absint( $_POST['count'] ?? 3 ) ) );
 	update_option( 'asy_kp_count', $count );
-	wp_send_json_success( array( 'count' => $count ) );
+
+	// Opening tab travels with the same Save defaults button.
+	$landing = isset( $_POST['landing'] ) ? sanitize_key( wp_unslash( $_POST['landing'] ) ) : 'health';
+	$landing = 'last' === $landing ? 'last' : 'health';
+	update_option( 'bsm_landing_tab', $landing );
+
+	wp_send_json_success(
+		array(
+			'count'   => $count,
+			'landing' => $landing,
+		)
+	);
 }
 
 /**
@@ -1640,7 +2016,11 @@ function bsm_ajax_ai_fill() {
 				$results[ $id ] = array( 'primary' => sanitize_text_field( $text ) );
 			}
 		} else {
-			$results[ $id ] = array( 'text' => sanitize_text_field( $text ) );
+			$val = sanitize_text_field( $text );
+			if ( 'title' === $task ) {
+				$val = bsm_cap_seo_title( $val ); // SEO titles: 55-char hard cap
+			}
+			$results[ $id ] = array( 'text' => $val );
 		}
 	}
 
@@ -1656,11 +2036,29 @@ function bsm_ajax_ai_fill() {
 }
 
 /**
+ * Hard-cap an AI-generated SEO title to BSM_TITLE_MAX characters, trimming at a
+ * word boundary where possible (no ellipsis — titles shouldn't trail off).
+ * Shared by all three tabs' AI title output.
+ */
+function bsm_cap_seo_title( $title ) {
+	$title = trim( (string) $title );
+	if ( mb_strlen( $title ) <= BSM_TITLE_MAX ) {
+		return $title;
+	}
+	$cut = mb_substr( $title, 0, BSM_TITLE_MAX );
+	$sp  = mb_strrpos( $cut, ' ' );
+	if ( false !== $sp && $sp > BSM_TITLE_MAX * 0.6 ) {
+		$cut = mb_substr( $cut, 0, $sp );
+	}
+	return rtrim( $cut, ' ,;:-—|' );
+}
+
+/**
  * Shared helper: call the platform webhook for one post + task.
  * Returns array of keyphrases (task 'keyphrase'), string (task 'metadesc'),
  * or WP_Error. No AWS keys touched — the platform holds them.
  */
-function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '', $words = 0 ) {
+function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '', $words = 0, $extra = array() ) {
 	$webhook = trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
 	if ( empty( $webhook ) ) {
 		return new WP_Error( 'no_webhook', 'AI engine not configured — set the webhook URL in Settings.' );
@@ -1702,6 +2100,13 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 		),
 	);
 
+	// Optional extra payload keys (3.38.0). Used by per-post Auto fill to send
+	// variation/seed/previous so the workflow can return a different answer on
+	// each run. Never allowed to overwrite the core keys above.
+	if ( ! empty( $extra ) && is_array( $extra ) ) {
+		$payload = array_merge( $extra, $payload );
+	}
+
 	$resp = wp_remote_post(
 		$webhook,
 		array(
@@ -1735,6 +2140,11 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 	// Full page content — return as-is (paragraph text), no length cap.
 	if ( 'content' === $task ) {
 		return sanitize_textarea_field( $text );
+	}
+	// SEO title — hard-cap to BSM_TITLE_MAX (55) at a word boundary. Covers both
+	// SEO Health and Auto SEO Manager, which call this helper for the 'title' task.
+	if ( 'title' === $task ) {
+		return bsm_cap_seo_title( sanitize_text_field( $text ) );
 	}
 	// metadesc: cap to the ideal max (BSM_DESC_HI) at a word boundary — matches
 	// the truncation the other Bulk Editor fill options apply, so AI output can't
@@ -1963,7 +2373,7 @@ function bsm_ajax_get_desc_data() {
 		foreach ( (array) $all_meta as $mk => $mv ) {
 			// Only include scalar, human-readable meta values
 			$val = is_array( $mv ) ? $mv[0] : $mv;
-			if ( is_string( $val ) && strlen( $val ) < 300 && '_' !== substr( $mk, 0, 1 ) ) {
+			if ( is_string( $val ) && strlen( $val ) < 300 && substr( $mk, 0, 1 ) !== '_' ) {
 				$flat_meta[ $mk ] = $val;
 			}
 		}
@@ -2053,7 +2463,7 @@ function bsm_ajax_save_all() {
 function bsm_handle_save() {
 	// Lightweight guard before the nonce check below; only compares a routing value, changes nothing.
     // phpcs:ignore WordPress.Security.NonceVerification.Missing
-	if ( ! isset( $_POST['bsm_action'] ) || 'save_all' !== sanitize_key( wp_unslash( $_POST['bsm_action'] ) ) ) {
+	if ( ! isset( $_POST['bsm_action'] ) || sanitize_key( wp_unslash( $_POST['bsm_action'] ) ) !== 'save_all' ) {
 		return;
 	}
 	if ( ! check_admin_referer( BSM_NONCE ) ) {
@@ -2102,6 +2512,7 @@ function bsm_handle_save() {
 		add_query_arg(
 			array(
 				'page'        => 'lookit-bulk-seo',
+				'tab'         => 'bulk',
 				'saved'       => $saved,
 				'errors'      => $errors,
 				'bkm_type'    => sanitize_key( $_POST['bkm_filter_type'] ?? 'all' ),
@@ -2118,6 +2529,9 @@ function bsm_handle_save() {
 // ─── Write meta + sync Yoast indexables ──────────────────────────────────────
 
 function bsm_update_fields( int $post_id, string $keyphrase, string $metadesc, string $title = '' ): void {
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
 	if ( '' !== $keyphrase ) {
 		update_post_meta( $post_id, BSM_META_KW, $keyphrase );
 	}
@@ -2146,9 +2560,32 @@ function bsm_update_fields( int $post_id, string $keyphrase, string $metadesc, s
 				}
 			}
 		} catch ( \Exception $e ) {
-			unset( $e );
+			unset( $e ); }
+	}
+}
+
+function bsm_bulk_mode_counts( array $posts ): array {
+	$counts = array(
+		'kw'    => 0,
+		'desc'  => 0,
+		'rel'   => 0,
+		'title' => 0,
+	);
+	foreach ( $posts as $post ) {
+		if ( '' === (string) get_post_meta( $post->ID, BSM_META_KW, true ) ) {
+			++$counts['kw'];
+		}
+		if ( '' === (string) get_post_meta( $post->ID, BSM_META_DESC, true ) ) {
+			++$counts['desc'];
+		}
+		if ( '' === (string) get_post_meta( $post->ID, BSM_META_TITLE, true ) ) {
+			++$counts['title'];
+		}
+		if ( '' === (string) get_post_meta( $post->ID, '_yoast_wpseo_focuskeywords', true ) ) {
+			++$counts['rel'];
 		}
 	}
+	return $counts;
 }
 
 // ─── Topbar ──────────────────────────────────────────────────────────────────
@@ -2176,13 +2613,130 @@ function bsm_topbar(): void {
 
 // ─── Tab navigation (shared across Bulk Editor / Auto SEO / Settings) ────────
 
+/**
+ * The tab to render. An explicit ?tab= wins; otherwise return to wherever this
+ * user was last, falling back to SEO Health. Tabs the user can no longer reach
+ * (capability changed, or a stale remembered value) fall back too.
+ *
+ * Every place that needs to know the current tab — the router, both asset
+ * loaders, and the Focus pre-router — must call this, or they disagree and the
+ * page renders one tab's markup with another tab's scripts.
+ */
+function bsm_resolve_tab(): string {
+	$valid = array( 'health', 'auto', 'bulk', 'focus', 'settings' );
+
+    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab routing, no state change.
+	$tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+
+	// No explicit tab: return to the user's last tab only when the site is set
+	// to do so (Settings -> Defaults -> Opening tab).
+	if ( ! in_array( $tab, $valid, true ) && 'last' === get_option( 'bsm_landing_tab', 'health' ) ) {
+		$tab = (string) get_user_meta( get_current_user_id(), 'bsm_last_tab', true );
+	}
+	if ( ! in_array( $tab, $valid, true ) ) {
+		$tab = 'health';
+	}
+	if ( in_array( $tab, array( 'auto', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+		$tab = 'health';
+	}
+	return $tab;
+}
+
+/**
+ * Query args worth restoring, per tab. Anything not listed here is dropped —
+ * one-shot params (saved, errors, focusmsg, nonces) must never be replayed.
+ */
+function bsm_view_params( string $tab ): array {
+	$map = array(
+		'health'   => array( 'audit_post', 'htype', 'hpaged' ),
+		'bulk'     => array( 'bkm_type', 'kw_status', 'desc_status', 'post_status', 's', 'paged' ),
+		'focus'    => array( 'fstrat', 'ff' ),
+		'settings' => array( 'pane' ),
+		'auto'     => array(),
+	);
+	return $map[ $tab ] ?? array();
+}
+
+/**
+ * Remember an explicitly chosen tab, and the view within it, so the next bare
+ * page load returns to exactly where the user left off — the audited page in
+ * SEO Health, the filtered list in the Bulk Editor, and so on.
+ */
+function bsm_remember_tab(): void {
+	if ( ! is_admin() || wp_doing_ajax() || ! current_user_can( 'edit_posts' ) ) {
+		return;
+	}
+    // phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only preference capture, no state change requested by the user.
+	$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+	$tab  = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+	if ( 'lookit-bulk-seo' !== $page ) {
+		return;
+	}
+
+	// No tab in the URL: this is the sidebar link. Restore the last view when
+	// the site is set to do so. Runs before the Focus pre-router.
+	if ( '' === $tab ) {
+		if ( 'last' !== get_option( 'bsm_landing_tab', 'health' ) ) {
+			return;
+		}
+		$view = get_user_meta( get_current_user_id(), 'bsm_last_view', true );
+		if ( ! is_array( $view ) || empty( $view['tab'] ) ) {
+			return;
+		}
+		$last = sanitize_key( $view['tab'] );
+		if ( ! in_array( $last, array( 'health', 'auto', 'bulk', 'focus', 'settings' ), true ) ) {
+			return;
+		}
+		if ( in_array( $last, array( 'auto', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+		$args = array(
+			'page' => 'lookit-bulk-seo',
+			'tab'  => $last,
+		);
+		foreach ( bsm_view_params( $last ) as $key ) {
+			if ( isset( $view[ $key ] ) && '' !== $view[ $key ] ) {
+				$args[ $key ] = $view[ $key ];
+			}
+		}
+		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+		exit;
+	}
+
+	if ( ! in_array( $tab, array( 'health', 'auto', 'bulk', 'focus', 'settings' ), true ) ) {
+		return;
+	}
+
+	$view = array( 'tab' => $tab );
+	foreach ( bsm_view_params( $tab ) as $key ) {
+		if ( ! isset( $_GET[ $key ] ) ) {
+			continue;
+		}
+		$val = 's' === $key
+			? sanitize_text_field( wp_unslash( $_GET[ $key ] ) )
+			: sanitize_key( wp_unslash( $_GET[ $key ] ) );
+		if ( '' !== $val ) {
+			$view[ $key ] = $val;
+		}
+	}
+    // phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+	if ( (string) get_user_meta( get_current_user_id(), 'bsm_last_tab', true ) !== $tab ) {
+		update_user_meta( get_current_user_id(), 'bsm_last_tab', $tab );
+	}
+	update_user_meta( get_current_user_id(), 'bsm_last_view', $view );
+}
+
 function bsm_render_tabs( string $active ): void {
 	$base = admin_url( 'admin.php?page=lookit-bulk-seo' );
-	$tabs = array( 'bulk' => 'Bulk Editor' );
+	$tabs = array(
+		'health' => 'SEO Health',
+	);
 	if ( current_user_can( 'manage_options' ) ) {
 		$tabs['auto'] = 'Auto SEO Manager';
 	}
-	$tabs['health'] = 'SEO Health';
+	$tabs['bulk']  = 'Bulk Editor';
+	$tabs['focus'] = 'Focus';
 	if ( current_user_can( 'manage_options' ) ) {
 		$tabs['settings'] = 'Settings';
 	}
@@ -2190,7 +2744,7 @@ function bsm_render_tabs( string $active ): void {
 	<div class="bsm-tabs">
 		<?php
 		foreach ( $tabs as $slug => $label ) :
-			$url = 'bulk' === $slug ? $base : add_query_arg( 'tab', $slug, $base );
+			$url = add_query_arg( 'tab', $slug, $base );
 			?>
 			<a href="<?php echo esc_url( $url ); ?>"
 				class="bsm-tab<?php echo $active === $slug ? ' bsm-tab-active' : ''; ?>">
@@ -2204,21 +2758,32 @@ function bsm_render_tabs( string $active ): void {
 // ─── Assets ──────────────────────────────────────────────────────────────────
 
 function bsm_enqueue_assets( $hook ): void {
-	// Auto SEO lock metabox lives on the post editor — load its CSS there.
+	// Auto SEO metabox lives on the post editor — load its CSS there, plus the
+	// keyphrase suggester when an AI endpoint is configured.
 	if ( in_array( $hook, array( 'post.php', 'post-new.php' ), true ) ) {
-		wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
+		wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), BSM_VERSION );
+		if ( '' !== trim( (string) get_option( 'bsm_ai_webhook_url', '' ) ) ) {
+			wp_enqueue_script( 'lookit-bsm-metabox', ASY_PLUGIN_URL . 'assets/metabox.js', array(), BSM_VERSION, true );
+			wp_localize_script(
+				'lookit-bsm-metabox',
+				'ASY_KP',
+				array(
+					'ajax_url' => admin_url( 'admin-ajax.php' ),
+					'nonce'    => wp_create_nonce( 'asy_kp_suggest' ),
+				)
+			);
+		}
 		return;
 	}
 
-	if ( false === strpos( (string) $hook, 'lookit-bulk-seo' ) ) {
+	if ( strpos( (string) $hook, 'lookit-bulk-seo' ) === false ) {
 		return;
 	}
 	wp_enqueue_style( 'google-dm-sans', 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap', array(), BSM_VERSION );
 
 	// Settings tab only: sidebar layout, preview rail and post picker (3.27.0).
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab switch, no state change.
-	$bsm_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
-	if ( 'settings' === $bsm_tab || false !== strpos( (string) $hook, 'lookit-bulk-seo-settings' ) ) {
+	$bsm_tab = bsm_resolve_tab();
+	if ( 'settings' === $bsm_tab || strpos( (string) $hook, 'lookit-bulk-seo-settings' ) !== false ) {
 		// Delivered inline rather than as a separate file request. On installs
 		// behind an aggressive CDN or WAF, a stale assets/settings.css was being
 		// served and the Settings page rendered at the old, larger type scale.
@@ -2255,6 +2820,26 @@ function bsm_enqueue_assets( $hook ): void {
 				'ajax_url'   => admin_url( 'admin-ajax.php' ),
 				'nonce'      => wp_create_nonce( 'bsm_health_suggest' ),
 				'save_nonce' => wp_create_nonce( 'bsm_health_save' ),
+				'alt_nonce'  => wp_create_nonce( 'bsm_health_alt' ),
+			)
+		);
+	}
+
+	// Focus tab renders the full SEO Health detail, so it needs the same
+	// stylesheet + behaviours (inline editor, alt generation) plus its own
+	// top-controls styling. The strategy toggle and Skip are plain links.
+	if ( 'focus' === $bsm_tab ) {
+		wp_enqueue_style( 'bsm-health', ASY_PLUGIN_URL . 'assets/health.css', array(), BSM_VERSION );
+		wp_enqueue_style( 'bsm-focus', ASY_PLUGIN_URL . 'assets/focus.css', array( 'bsm-health' ), BSM_VERSION );
+		wp_enqueue_script( 'bsm-health', ASY_PLUGIN_URL . 'assets/health.js', array(), BSM_VERSION, true );
+		wp_localize_script(
+			'bsm-health',
+			'BSM_HEALTH',
+			array(
+				'ajax_url'   => admin_url( 'admin-ajax.php' ),
+				'nonce'      => wp_create_nonce( 'bsm_health_suggest' ),
+				'save_nonce' => wp_create_nonce( 'bsm_health_save' ),
+				'alt_nonce'  => wp_create_nonce( 'bsm_health_alt' ),
 			)
 		);
 	}
@@ -2281,11 +2866,46 @@ function bsm_enqueue_assets( $hook ): void {
         .bsm-panel-top { display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid #cfe3f7; }
         .bsm-panel-actions { display:flex;align-items:center;gap:12px;flex-shrink:0;margin-left:auto; }
         .bsm-switcher { display:flex;align-items:center;gap:16px;flex-wrap:wrap; }
-        .bsm-fill-tabs { display:inline-flex;border:1px solid #b3d4f0;border-radius:6px;overflow:hidden;background:#fff;flex-shrink:0;height:40px; }
-        .bsm-tab { display:inline-flex;align-items:center;height:100%;box-sizing:border-box;border:none;border-right:1px solid #cfe3f7;background:transparent;padding:0 22px;font-size:calc(14px * var(--bsm-fs, 1));line-height:1;cursor:pointer;color:#1c2333; }
-        .bsm-tab:last-child { border-right:none; }
-        .bsm-tab:hover { background:#eaf2fb; }
-        .bsm-tab.-active { background:#2271b1;color:#fff;font-weight:600; }
+        /* Mode tiles: the four field types are the main navigation for this screen. */
+        .bsm-modebar { padding:14px 0 6px; }
+        .bsm-fill-tabs { display:flex;gap:8px;flex-wrap:wrap; }
+        .bsm-tab { display:flex;flex-direction:column;align-items:flex-start;gap:2px;box-sizing:border-box;
+                   border:1px solid #cfe3f7;border-radius:9px;background:#fff;padding:10px 16px;min-width:168px;
+                   cursor:pointer;text-align:left;transition:border-color .12s,background .12s; }
+        .bsm-tab:hover { border-color:#028673;background:rgba(2,134,115,.06); }
+        .bsm-tab.-active { background:#028673;border-color:#028673; }
+        .bsm-tab-t { font-size:calc(13.5px * var(--bsm-fs, 1));font-weight:600;color:#1c2333;line-height:1.25; }
+        .bsm-tab-c { font-size:calc(11.5px * var(--bsm-fs, 1));color:#7a879b;line-height:1.25; }
+        .bsm-tab.-active .bsm-tab-t { color:#fff; }
+        .bsm-tab.-active .bsm-tab-c { color:rgba(255,255,255,.8); }
+
+        /* One job at a time: hide the column groups the active mode does not edit.
+           The inputs stay in the DOM so fill and save keep working on every field. */
+        .bsm-table.bsm-mode-kw    .bsm-c-desc,
+        .bsm-table.bsm-mode-kw    .bsm-c-title,
+        .bsm-table.bsm-mode-rel   .bsm-c-desc,
+        .bsm-table.bsm-mode-rel   .bsm-c-title,
+        .bsm-table.bsm-mode-desc  .bsm-c-kw,
+        .bsm-table.bsm-mode-desc  .bsm-c-title,
+        .bsm-table.bsm-mode-title .bsm-c-kw,
+        .bsm-table.bsm-mode-title .bsm-c-desc { display:none; }
+
+        /* Row fill: present on hover or keyboard focus, quiet otherwise. */
+        .bsm-btn-row { background:#fff;border:1px solid #cfd6e0;color:#028673;font-weight:600;opacity:0;transition:opacity .12s; }
+        .bsm-btn-row:hover { border-color:#028673;background:rgba(2,134,115,.08); }
+        .bsm-table tbody tr:hover .bsm-btn-row,
+        .bsm-table tbody tr:focus-within .bsm-btn-row { opacity:1; }
+        @media (hover:none) { .bsm-btn-row { opacity:1; } }
+
+        /* Action bar: sticks to the bottom and reflects the current selection. */
+        .bsm-actionbar { position:sticky;bottom:0;z-index:20;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+                         padding:12px 14px;margin-top:0;background:#fff;border:1px solid #e2e6ee;border-radius:0 0 8px 8px;
+                         box-shadow:0 -2px 10px rgba(17,21,31,.06); }
+        .bsm-actionbar.-has-selection { background:#11151f;border-color:#11151f; }
+        .bsm-ab-sel { font-size:calc(13px * var(--bsm-fs, 1));color:#4e5a6e;font-weight:600;white-space:nowrap; }
+        .bsm-actionbar.-has-selection .bsm-ab-sel { color:#fff; }
+        .bsm-actionbar.-has-selection .bsm-target select { border-color:#3a4356;background:#232a38;color:#fff; }
+        .bsm-ab-spacer { flex:1 1 auto; }
         .bsm-target { display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:1 1 auto;min-width:0; }
         .bsm-target[hidden] { display:none; }
         .bsm-target select { height:40px;box-sizing:border-box;min-width:300px;flex:1 1 300px;max-width:520px;font-size:calc(13px * var(--bsm-fs, 1));padding:0 30px 0 10px;border-radius:5px;border:1px solid #b3d4f0;background:#fff; }
@@ -2298,9 +2918,9 @@ function bsm_enqueue_assets( $hook ): void {
         .bsm-btn-selected { background:#1470a8;color:#fff; }
         .bsm-btn-selected:hover { background:#115a86; }
         /* ── Table ── */
-        #bsm-wrap table.bsm-table { border-collapse:collapse;width:100%; }
-        #bsm-wrap table.bsm-table th { background:#0d1117;color:#8b96a8;font-size:calc(11px * var(--bsm-fs, 1));text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:10px;border:1px solid #222d40;white-space:nowrap; }
-        #bsm-wrap table.bsm-table td { padding:10px;border:1px solid #dcdcde;font-size:calc(13px * var(--bsm-fs, 1));vertical-align:top; }
+        #bsm-wrap table.bsm-table { border-collapse:collapse;width:100%;table-layout:fixed; }
+        #bsm-wrap table.bsm-table th { background:#0d1117;color:#8b96a8;font-size:calc(11px * var(--bsm-fs, 1));text-transform:uppercase;letter-spacing:.06em;font-weight:600;padding:10px;border:1px solid #222d40;white-space:normal; }
+        #bsm-wrap table.bsm-table td { padding:10px;border:1px solid #dcdcde;font-size:calc(13px * var(--bsm-fs, 1));vertical-align:top;word-wrap:break-word;overflow-wrap:break-word; }
         #bsm-wrap table.bsm-table tr:hover td { background:#f9fafc; }
         .bsm-type-pill { display:inline-block;font-size:calc(11px * var(--bsm-fs, 1));padding:2px 7px;border-radius:3px;background:#f0f0f1;color:#50575e;border:1px solid #dcdcde;white-space:nowrap; }
         .bsm-status-pill { display:inline-block;margin-left:6px;font-size:calc(10px * var(--bsm-fs, 1));font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:1px 6px;border-radius:3px;vertical-align:middle;white-space:nowrap; }
@@ -2383,11 +3003,10 @@ function bsm_enqueue_assets( $hook ): void {
 	wp_add_inline_style( 'wp-admin', ':root{--bsm-fs:' . esc_attr( bsm_get_text_scale() ) . ';}' );
 
 	// On the Auto SEO Manager tab, load that engine's admin assets.
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab switch, no state change.
-	$tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'bulk';
+	$tab = bsm_resolve_tab();
 	if ( 'auto' === $tab && current_user_can( 'manage_options' ) ) {
-		wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), ASY_VERSION );
-		wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), ASY_VERSION, true );
+		wp_enqueue_style( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.css', array(), BSM_VERSION );
+		wp_enqueue_script( 'lookit-bsm-admin', ASY_PLUGIN_URL . 'assets/admin.js', array( 'jquery' ), BSM_VERSION, true );
 		wp_localize_script(
 			'lookit-bsm-admin',
 			'ASY',
@@ -2458,14 +3077,16 @@ function bsm_render_page(): void {
 		wp_die( 'Permission denied.' );
 	}
 
-	// Route to the requested tab.
-    // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab routing, no state change.
-	$tab = sanitize_key( $_GET['tab'] ?? 'bulk' );
+	// Route to the requested tab (or the one this user was last on).
+	$tab = bsm_resolve_tab();
 	if ( 'auto' === $tab && current_user_can( 'manage_options' ) ) {
 		bsm_render_auto_section();
 		return; }
 	if ( 'health' === $tab ) {
 		BSM_Health::render();
+		return; }
+	if ( 'focus' === $tab ) {
+		BSM_Health::render_focus();
 		return; }
 	if ( 'settings' === $tab && current_user_can( 'manage_options' ) ) {
 		bsm_render_settings();
@@ -2639,6 +3260,7 @@ function bsm_render_page(): void {
 			<?php /* Filters (now inside the panel) */ ?>
 			<form method="get" action="<?php echo esc_url( admin_url( 'admin.php' ) ); ?>">
 				<input type="hidden" name="page" value="lookit-bulk-seo">
+				<input type="hidden" name="tab" value="bulk">
 				<div class="bsm-filters">
 					<select name="bkm_type">
 						<option value="all" <?php selected( $ftype, 'all' ); ?>>All post types</option>
@@ -2668,20 +3290,158 @@ function bsm_render_page(): void {
 					<input type="search" name="s" id="bsm-search" placeholder="Search titles…" value="<?php echo esc_attr( $search ); ?>">
 					<?php submit_button( 'Filter', 'secondary', '', false ); ?>
 					<?php if ( $search || 'all' !== $ftype || 'all' !== $fstatus || 'all' !== $fdesc || 'publish' !== $fpost ) : ?>
-						<a href="<?php echo esc_url( admin_url( 'admin.php?page=lookit-bulk-seo' ) ); ?>" class="button">Reset</a>
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=lookit-bulk-seo&tab=bulk' ) ); ?>" class="button">Reset</a>
 					<?php endif; ?>
 				</div>
 			</form>
 			</div><?php /* /bsm-panel-top */ ?>
 
-			<div class="bsm-switcher">
+			<?php
+			// Counts for the mode tiles. Read from the posts already loaded for
+			// this page, so no extra queries: the label says "on this page".
+			$bsm_n     = bsm_bulk_mode_counts( $posts );
+			$bsm_tiles = array(
+				'kw'    => array( 'Keyphrases', $bsm_n['kw'], 'missing' ),
+				'desc'  => array( 'Meta descriptions', $bsm_n['desc'], 'missing' ),
+				'rel'   => array( 'Related keyphrases', $bsm_n['rel'], 'empty' ),
+				'title' => array( 'SEO titles', $bsm_n['title'], 'using the default' ),
+			);
+			?>
+			<div class="bsm-modebar">
 			<div class="bsm-fill-tabs" role="tablist">
-				<button type="button" class="bsm-tab" data-target="kw">Keyphrases</button>
-				<button type="button" class="bsm-tab" data-target="desc">Descriptions</button>
-				<button type="button" class="bsm-tab" data-target="rel">Related keyphrases</button>
-				<button type="button" class="bsm-tab" data-target="title">SEO Titles</button>
+				<?php foreach ( $bsm_tiles as $bsm_k => $bsm_t ) : ?>
+					<button type="button" class="bsm-tab" data-target="<?php echo esc_attr( $bsm_k ); ?>">
+						<span class="bsm-tab-t"><?php echo esc_html( $bsm_t[0] ); ?></span>
+						<span class="bsm-tab-c">
+						<?php
+							echo $bsm_t[1] > 0
+								? esc_html( $bsm_t[1] . ' ' . $bsm_t[2] . ' on this page' )
+								: esc_html__( 'All set on this page', 'bulk-keyphrase-manager' );
+						?>
+						</span>
+					</button>
+				<?php endforeach; ?>
 			</div>
 
+			</div>
+		</div>
+
+		<?php /* ── Main form ── */ ?>
+		<form method="post" id="bsm-bulk-form" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<?php wp_nonce_field( BSM_NONCE ); ?>
+			<input type="hidden" name="action"            value="bsm_save_all">
+			<input type="hidden" name="bsm_action"        value="save_all">
+			<input type="hidden" name="bkm_filter_type"   value="<?php echo esc_attr( $ftype ); ?>">
+			<input type="hidden" name="bkm_filter_status" value="<?php echo esc_attr( $fstatus ); ?>">
+			<input type="hidden" name="bkm_filter_desc"   value="<?php echo esc_attr( $fdesc ); ?>">
+			<input type="hidden" name="bkm_paged"         value="<?php echo esc_attr( $paged ); ?>">
+			<input type="hidden" name="bkm_all_ids" id="bsm-all-ids"
+					value="<?php echo esc_attr( implode( ',', $page_ids ) ); ?>">
+
+			<?php if ( empty( $posts ) ) : ?>
+				<p>No content found matching your filters.</p>
+			<?php else : ?>
+
+			<table class="bsm-table widefat">
+				<thead><tr>
+					<th style="width:30px;"><input type="checkbox" id="bsm-check-all"></th>
+					<th style="width:200px;">Title</th>
+					<th style="width:80px;">Type</th>
+					<th style="width:130px;" class="bsm-c-kw">Current Keyphrase</th>
+					<th style="width:180px;" class="bsm-c-kw">New Keyphrase</th>
+					<th style="width:160px;" class="bsm-c-desc">Current Meta Description</th>
+					<th style="width:260px;" class="bsm-c-desc">New Meta Description</th>
+					<th style="width:150px;" class="bsm-c-title">Current SEO Title</th>
+					<th style="width:210px;" class="bsm-c-title">New SEO Title</th>
+					<th style="width:80px;">Fill</th>
+				</tr></thead>
+				<tbody>
+				<?php
+				foreach ( $posts as $post ) :
+					$cur_kw    = (string) get_post_meta( $post->ID, BSM_META_KW, true );
+					$cur_desc  = (string) get_post_meta( $post->ID, BSM_META_DESC, true );
+					$cur_title = (string) get_post_meta( $post->ID, BSM_META_TITLE, true );
+					$has_title = '' !== $cur_title;
+					// Yoast titles are templates (e.g. %%title%% %%sep%% %%sitename%%); render them for display.
+					$title_display = $has_title
+						? ( function_exists( 'wpseo_replace_vars' ) ? wpseo_replace_vars( $cur_title, $post ) : $cur_title )
+						: '';
+					$has_kw        = '' !== $cur_kw;
+					$has_desc      = '' !== $cur_desc;
+					$dlen          = mb_strlen( $cur_desc );
+					$edit_url      = get_edit_post_link( $post->ID );
+					$tlabel        = $all_types[ $post->post_type ]->label ?? ucfirst( $post->post_type );
+					$dcls          = ! $has_desc ? 'bsm-cc-info' : ( $dlen >= BSM_DESC_LO && $dlen <= BSM_DESC_HI ? 'bsm-cc-ok' : 'bsm-cc-warn' );
+					$dtxt          = ! $has_desc ? 'Not set' : ( $dlen >= BSM_DESC_LO && $dlen <= BSM_DESC_HI ? $dlen . ' chars ✓' : $dlen . ' chars (ideal ' . BSM_DESC_LO . '–' . BSM_DESC_HI . ')' );
+					?>
+					<tr data-post-id="<?php echo esc_attr( $post->ID ); ?>"
+						data-title="<?php echo esc_attr( $post->post_title ); ?>">
+						<td><input type="checkbox" class="bsm-row-check" value="<?php echo esc_attr( $post->ID ); ?>"></td>
+						<td>
+							<a href="<?php echo esc_url( $edit_url ); ?>" target="_blank" style="font-weight:500;">
+								<?php echo esc_html( $post->post_title ? $post->post_title : '(no title)' ); ?>
+							</a>
+							<?php
+							if ( 'publish' !== $post->post_status ) :
+								$st_obj = get_post_status_object( $post->post_status );
+								$st_lbl = $st_obj ? $st_obj->label : ucfirst( $post->post_status );
+								?>
+								<span class="bsm-status-pill bsm-status-<?php echo esc_attr( $post->post_status ); ?>"><?php echo esc_html( $st_lbl ); ?></span>
+							<?php endif; ?>
+						</td>
+						<td><span class="bsm-type-pill"><?php echo esc_html( $tlabel ); ?></span></td>
+						<td class="bsm-c-kw"><span class="bsm-current"><?php echo $has_kw ? esc_html( $cur_kw ) : '<em style="color:#999;">none</em>'; ?></span></td>
+						<td class="bsm-fill-cell bsm-c-kw">
+							<div class="bsm-cell-fill">
+								<input type="text"
+										class="bsm-kw-input bsm-new-kw"
+										name="bkm_keyphrases[<?php echo esc_attr( $post->ID ); ?>]"
+										value=""
+										placeholder="<?php echo $has_kw ? esc_attr( $cur_kw ) : 'Enter keyphrase…'; ?>">
+							</div>
+						</td>
+						<td class="bsm-c-desc">
+							<?php if ( $has_desc ) : ?>
+								<span class="bsm-current" style="font-size:calc(11px * var(--bsm-fs, 1));"><?php echo esc_html( $cur_desc ); ?></span>
+								<div class="bsm-cc <?php echo esc_attr( $dcls ); ?>"><?php echo esc_html( $dtxt ); ?></div>
+							<?php else : ?>
+								<em style="color:#999;font-size:calc(12px * var(--bsm-fs, 1));">none</em>
+								<div class="bsm-cc bsm-cc-info">Not set</div>
+							<?php endif; ?>
+						</td>
+						<td class="bsm-fill-cell bsm-c-desc">
+							<div class="bsm-cell-fill">
+								<textarea class="bsm-desc-ta bsm-new-desc"
+											name="bkm_metadescs[<?php echo esc_attr( $post->ID ); ?>]"
+											rows="3"
+											data-post-id="<?php echo esc_attr( $post->ID ); ?>"
+											placeholder="<?php echo $has_desc ? esc_attr( $cur_desc ) : 'Enter meta description…'; ?>"></textarea>
+								<div class="bsm-cc bsm-cc-info" id="bsm-cc-<?php echo esc_attr( $post->ID ); ?>">0 chars (ideal <?php echo esc_html( BSM_DESC_LO . '–' . BSM_DESC_HI ); ?>)</div>
+							</div>
+						</td>
+						<td class="bsm-c-title"><span class="bsm-current"><?php echo $has_title ? esc_html( $title_display ) : '<em style="color:#999;">default</em>'; ?></span></td>
+						<td class="bsm-fill-cell bsm-c-title">
+							<div class="bsm-cell-fill">
+								<input type="text"
+										class="bsm-kw-input bsm-new-title"
+										name="bkm_titles[<?php echo esc_attr( $post->ID ); ?>]"
+										value=""
+										placeholder="<?php echo $has_title ? esc_attr( $title_display ) : 'Enter SEO title…'; ?>">
+							</div>
+						</td>
+						<td style="vertical-align:top;">
+							<button type="button"
+									class="bsm-btn bsm-btn-row bsm-fill-row-both"
+									data-post-id="<?php echo esc_attr( $post->ID ); ?>"
+									title="Fill this row using the source selected below">✦ Fill</button>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+				</tbody>
+			</table>
+
+			<div class="bsm-actionbar" id="bsm-actionbar">
+				<span class="bsm-ab-sel" id="bsm-ab-sel"><?php esc_html_e( 'Filling every page below', 'bulk-keyphrase-manager' ); ?></span>
 			<div class="bsm-target" data-target="kw">
 			<select class="bsm-kw-source" id="bsm-kw-source">
 				<optgroup label="── AI (Amazon Bedrock) ──">
@@ -2783,128 +3543,9 @@ function bsm_render_page(): void {
 			<button type="button" class="bsm-btn bsm-btn-selected" id="bsm-btn-fill-title-selected"
 					style="opacity:0.5;" title="Tick the checkboxes on the rows you want first">✦ Preview &amp; Fill Selected</button>
 			</div>
-			<button type="button" class="button button-primary bsm-save-all">Save All Changes</button>
+			<button type="button" class="button button-primary bsm-save-all" id="bsm-save-all-main">Save changes</button>
 			<span id="bsm-fill-status" style="font-size:calc(12px * var(--bsm-fs, 1));color:#1da462;display:none;"></span>
-			</div><?php /* /bsm-switcher */ ?>
-		</div>
-
-		<?php /* ── Main form ── */ ?>
-		<form method="post" id="bsm-bulk-form" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-			<?php wp_nonce_field( BSM_NONCE ); ?>
-			<input type="hidden" name="action"            value="bsm_save_all">
-			<input type="hidden" name="bsm_action"        value="save_all">
-			<input type="hidden" name="bkm_filter_type"   value="<?php echo esc_attr( $ftype ); ?>">
-			<input type="hidden" name="bkm_filter_status" value="<?php echo esc_attr( $fstatus ); ?>">
-			<input type="hidden" name="bkm_filter_desc"   value="<?php echo esc_attr( $fdesc ); ?>">
-			<input type="hidden" name="bkm_paged"         value="<?php echo esc_attr( $paged ); ?>">
-			<input type="hidden" name="bkm_all_ids" id="bsm-all-ids"
-					value="<?php echo esc_attr( implode( ',', $page_ids ) ); ?>">
-
-			<?php if ( empty( $posts ) ) : ?>
-				<p>No content found matching your filters.</p>
-			<?php else : ?>
-
-			<table class="bsm-table widefat">
-				<thead><tr>
-					<th style="width:30px;"><input type="checkbox" id="bsm-check-all"></th>
-					<th>Title</th>
-					<th style="width:100px;">Type</th>
-					<th style="width:60px;">KW</th>
-					<th style="width:140px;">Current Keyphrase</th>
-					<th style="width:170px;">New Keyphrase</th>
-					<th style="width:180px;">Current Meta Description</th>
-					<th style="width:250px;">New Meta Description</th>
-					<th style="width:180px;">Current SEO Title</th>
-					<th style="width:220px;">New SEO Title</th>
-					<th style="width:96px;">Fill Row</th>
-				</tr></thead>
-				<tbody>
-				<?php
-				foreach ( $posts as $post ) :
-					$cur_kw    = (string) get_post_meta( $post->ID, BSM_META_KW, true );
-					$cur_desc  = (string) get_post_meta( $post->ID, BSM_META_DESC, true );
-					$cur_title = (string) get_post_meta( $post->ID, BSM_META_TITLE, true );
-					$has_title = '' !== $cur_title;
-					// Yoast titles are templates (e.g. %%title%% %%sep%% %%sitename%%); render them for display.
-					$title_display = $has_title
-						? ( function_exists( 'wpseo_replace_vars' ) ? wpseo_replace_vars( $cur_title, $post ) : $cur_title )
-						: '';
-					$has_kw        = '' !== $cur_kw;
-					$has_desc      = '' !== $cur_desc;
-					$dlen          = mb_strlen( $cur_desc );
-					$edit_url      = get_edit_post_link( $post->ID );
-					$tlabel        = $all_types[ $post->post_type ]->label ?? ucfirst( $post->post_type );
-					$dcls          = ! $has_desc ? 'bsm-cc-info' : ( $dlen >= BSM_DESC_LO && $dlen <= BSM_DESC_HI ? 'bsm-cc-ok' : 'bsm-cc-warn' );
-					$dtxt          = ! $has_desc ? 'Not set' : ( $dlen >= BSM_DESC_LO && $dlen <= BSM_DESC_HI ? $dlen . ' chars ✓' : $dlen . ' chars (ideal ' . BSM_DESC_LO . '–' . BSM_DESC_HI . ')' );
-					?>
-					<tr data-post-id="<?php echo esc_attr( $post->ID ); ?>"
-						data-title="<?php echo esc_attr( $post->post_title ); ?>">
-						<td><input type="checkbox" class="bsm-row-check" value="<?php echo esc_attr( $post->ID ); ?>"></td>
-						<td>
-							<a href="<?php echo esc_url( $edit_url ); ?>" target="_blank" style="font-weight:500;">
-								<?php echo esc_html( $post->post_title ? $post->post_title : '(no title)' ); ?>
-							</a>
-							<?php
-							if ( 'publish' !== $post->post_status ) :
-								$st_obj = get_post_status_object( $post->post_status );
-								$st_lbl = $st_obj ? $st_obj->label : ucfirst( $post->post_status );
-								?>
-								<span class="bsm-status-pill bsm-status-<?php echo esc_attr( $post->post_status ); ?>"><?php echo esc_html( $st_lbl ); ?></span>
-							<?php endif; ?>
-						</td>
-						<td><span class="bsm-type-pill"><?php echo esc_html( $tlabel ); ?></span></td>
-						<td><span style="font-size:calc(11px * var(--bsm-fs, 1));color:<?php echo $has_kw ? '#1da462' : '#999'; ?>;">
-							<?php echo $has_kw ? '● Set' : '○ Empty'; ?>
-						</span></td>
-						<td><span class="bsm-current"><?php echo $has_kw ? esc_html( $cur_kw ) : '<em style="color:#999;">none</em>'; ?></span></td>
-						<td class="bsm-fill-cell">
-							<div class="bsm-cell-fill">
-								<input type="text"
-										class="bsm-kw-input bsm-new-kw"
-										name="bkm_keyphrases[<?php echo esc_attr( $post->ID ); ?>]"
-										value=""
-										placeholder="<?php echo $has_kw ? esc_attr( $cur_kw ) : 'Enter keyphrase…'; ?>">
-							</div>
-						</td>
-						<td>
-							<?php if ( $has_desc ) : ?>
-								<span class="bsm-current" style="font-size:calc(11px * var(--bsm-fs, 1));"><?php echo esc_html( $cur_desc ); ?></span>
-								<div class="bsm-cc <?php echo esc_attr( $dcls ); ?>"><?php echo esc_html( $dtxt ); ?></div>
-							<?php else : ?>
-								<em style="color:#999;font-size:calc(12px * var(--bsm-fs, 1));">none</em>
-								<div class="bsm-cc bsm-cc-info">Not set</div>
-							<?php endif; ?>
-						</td>
-						<td class="bsm-fill-cell">
-							<div class="bsm-cell-fill">
-								<textarea class="bsm-desc-ta bsm-new-desc"
-											name="bkm_metadescs[<?php echo esc_attr( $post->ID ); ?>]"
-											rows="3"
-											data-post-id="<?php echo esc_attr( $post->ID ); ?>"
-											placeholder="<?php echo $has_desc ? esc_attr( $cur_desc ) : 'Enter meta description…'; ?>"></textarea>
-								<div class="bsm-cc bsm-cc-info" id="bsm-cc-<?php echo esc_attr( $post->ID ); ?>">0 chars (ideal <?php echo esc_html( BSM_DESC_LO . '–' . BSM_DESC_HI ); ?>)</div>
-							</div>
-						</td>
-						<td><span class="bsm-current"><?php echo $has_title ? esc_html( $title_display ) : '<em style="color:#999;">default</em>'; ?></span></td>
-						<td class="bsm-fill-cell">
-							<div class="bsm-cell-fill">
-								<input type="text"
-										class="bsm-kw-input bsm-new-title"
-										name="bkm_titles[<?php echo esc_attr( $post->ID ); ?>]"
-										value=""
-										placeholder="<?php echo $has_title ? esc_attr( $title_display ) : 'Enter SEO title…'; ?>">
-							</div>
-						</td>
-						<td style="text-align:center;vertical-align:middle;">
-							<button type="button"
-									class="bsm-btn bsm-btn-green bsm-fill-row-both"
-									data-post-id="<?php echo esc_attr( $post->ID ); ?>"
-									title="Fill this row's keyphrase and meta description using the sources selected above">✦ Fill row</button>
-						</td>
-					</tr>
-				<?php endforeach; ?>
-				</tbody>
-			</table>
+			</div>
 
 			<div class="bsm-bottom-bar">
 				<span style="font-size:calc(12px * var(--bsm-fs, 1));color:#666;">
@@ -2928,7 +3569,6 @@ function bsm_render_page(): void {
 						)
 					);
 					?>
-					<button type="button" class="button button-primary bsm-save-all">Save all changes on this page</button>
 				</div>
 			</div>
 
@@ -3455,6 +4095,14 @@ function bsm_render_page(): void {
 			function setTarget(t){
 				tabs.forEach(function(b){ b.classList.toggle('-active', b.getAttribute('data-target') === t); });
 				targets.forEach(function(d){ d.hidden = (d.getAttribute('data-target') !== t); });
+				// Show only the columns this mode edits. Everything stays in the
+				// DOM, so fill and save still see every field.
+				var tbl = document.querySelector('.bsm-table');
+				if (tbl) {
+					tbl.classList.remove('bsm-mode-kw','bsm-mode-desc','bsm-mode-rel','bsm-mode-title');
+					tbl.classList.add('bsm-mode-' + t);
+				}
+				window.bsmMode = t;
 				try { sessionStorage.setItem('bsmFillTab', t); } catch(e){}
 			}
 			tabs.forEach(function(b){ b.addEventListener('click', function(){ setTarget(b.getAttribute('data-target')); }); });
@@ -3504,6 +4152,31 @@ function bsm_render_page(): void {
 				kwBtn.title = anyChecked ? '' : 'Tick the checkboxes on the rows you want to fill first';
 			}
 		}
+		// ── Action bar: report the selection, and say what each button will do ──
+		function updateActionBar() {
+			var checks = Array.from(document.querySelectorAll('.bsm-row-check'));
+			var n      = checks.filter(function(cb){ return cb.checked; }).length;
+			var bar    = document.getElementById('bsm-actionbar');
+			var label  = document.getElementById('bsm-ab-sel');
+			if (bar)   { bar.classList.toggle('-has-selection', n > 0); }
+			if (label) {
+				label.textContent = n > 0
+					? n + (n === 1 ? ' page selected' : ' pages selected')
+					: 'Filling every page below';
+			}
+			['bsm-btn-fill-kw-selected','bsm-btn-fill-selected','bsm-btn-rel-selected','bsm-btn-fill-title-selected']
+				.forEach(function(id){
+					var b = document.getElementById(id);
+					if (b) { b.textContent = n > 0 ? '\u2726 Fill ' + n + ' selected' : '\u2726 Fill selected'; }
+				});
+		}
+		document.addEventListener('change', function(e){
+			if (e.target && (e.target.classList.contains('bsm-row-check') || e.target.id === 'bsm-check-all')) {
+				setTimeout(updateActionBar, 0);
+			}
+		});
+		updateActionBar();
+
 		// Alias for backward compat
 		var updateFillSelectedBtn = updateSelectedBtns;
 		document.querySelectorAll('.bsm-row-check').forEach(function(cb){
@@ -3550,7 +4223,13 @@ function bsm_render_page(): void {
 			var bothBtn = e.target.closest('.bsm-fill-row-both');
 			if (bothBtn) {
 				var row = bothBtn.closest('tr');
-				if (row) { fillKeyphrases([row]); fillRows([row]); fillTitles([row]); }
+				if (!row) { return; }
+				// Fill what the visible mode is for. Filling hidden columns would
+				// stage changes the editor cannot see before saving.
+				var m = window.bsmMode || 'kw';
+				if (m === 'desc')       { fillRows([row]); }
+				else if (m === 'title') { fillTitles([row]); }
+				else                    { fillKeyphrases([row]); }
 			}
 		});
 

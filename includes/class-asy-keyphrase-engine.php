@@ -69,7 +69,7 @@ class ASY_Keyphrase_Engine {
 			$all,
 			function ( $kp ) use ( $focus_words, $focus_full ) {
 				$kp_l = strtolower( trim( $kp ) );
-				if ( '' === $kp_l || $kp_l === $focus_full ) {
+				if ( '' === $kp_l || $focus_full === $kp_l ) {
 					return false;
 				}
 				foreach ( self::significant_words( $kp ) as $w => $_ ) {
@@ -186,8 +186,8 @@ class ASY_Keyphrase_Engine {
 		// Filter: minimum 2 occurrences OR appears in title/heading
 		$scored = array();
 		foreach ( $ngrams as $phrase => $freq ) {
-			$in_title   = ( false !== strpos( $title, $phrase ) );
-			$in_heading = ( false !== strpos( $heading_text, $phrase ) );
+			$in_title   = ( strpos( $title, $phrase ) !== false );
+			$in_heading = ( strpos( $heading_text, $phrase ) !== false );
 
 			if ( $freq < 2 && ! $in_title && ! $in_heading ) {
 				continue;
@@ -333,12 +333,9 @@ class ASY_Keyphrase_Engine {
 		}
 
 		// Sliding bigrams from title words
-		$phrases    = array();
-		$word_count = count( $words );
-		for ( $i = 0; $i < $word_count - 1; $i++ ) {
-			if ( count( $phrases ) >= $count ) {
-				break;
-			}
+		$phrases = array();
+		$limit   = count( $words ) - 1;
+		for ( $i = 0; $i < $limit && $i < $count; $i++ ) {
 			$phrases[] = ucwords( $words[ $i ] . ' ' . $words[ $i + 1 ] );
 		}
 		return $phrases;
@@ -389,7 +386,7 @@ class ASY_Keyphrase_Engine {
 			if ( empty( $word ) ) {
 				continue;
 			}
-			if ( false !== strpos( $word, ' ' ) ) {
+			if ( strpos( $word, ' ' ) !== false ) {
 				$multi[] = array(
 					'word'  => $word,
 					'score' => $score * 1.5,
@@ -409,7 +406,7 @@ class ASY_Keyphrase_Engine {
 		$stop       = self::stop_words();
 		foreach ( $single as $item ) {
 			$w = strtolower( $item['word'] );
-			if ( isset( $stop[ $w ] ) || mb_strlen( $w ) < 3 ) {
+			if ( isset( $stop[ $w ] ) || 3 > mb_strlen( $w ) ) {
 				continue;
 			}
 			$multi[] = array(
@@ -484,7 +481,7 @@ class ASY_Keyphrase_Engine {
 		$words = preg_split( '/\s+/', trim( (string) $norm ) );
 		$out   = array();
 		foreach ( (array) $words as $w ) {
-			if ( '' === $w || mb_strlen( $w ) < 3 || isset( $stop[ $w ] ) ) {
+			if ( '' === $w || 3 > mb_strlen( $w ) || isset( $stop[ $w ] ) ) {
 				continue;
 			}
 			$out[ $w ] = true;

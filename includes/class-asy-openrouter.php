@@ -28,7 +28,7 @@ class ASY_OpenRouter {
 			return self::DEFAULT_MODEL;
 		}
 		// Any model without :free suffix could be paid — force the suffix
-		if ( false === strpos( $model, ':free' ) ) {
+		if ( strpos( $model, ':free' ) === false ) {
 			return self::DEFAULT_MODEL;
 		}
 		return $model;

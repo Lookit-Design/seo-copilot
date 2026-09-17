@@ -25,6 +25,11 @@ class BSM_Health {
 	const TITLE_OK  = 60;
 	const TITLE_MAX = 70;
 
+	// Focus tab: how many candidate posts to audit per pick. Bounds the cost on
+	// large sites — see focus_pick() and the Vadim note about caching a full-site
+	// ranking for exactness at scale.
+	const FOCUS_SCAN_CAP = 40;
+
 	// ─────────────────────────────────────────────────────────────────────────
 	// Entry point
 	// ─────────────────────────────────────────────────────────────────────────
@@ -91,6 +96,401 @@ class BSM_Health {
 			),
 			admin_url( 'admin.php' )
 		);
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────
+	// Focus tab — surface one page to work on next (reuses the audit engine)
+	// ─────────────────────────────────────────────────────────────────────────
+
+	public static function render_focus(): void {
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'bulk-keyphrase-manager' ) );
+		}
+
+		// The focused post and strategy are settled in route_focus() (admin_init)
+		// and arrive as URL params, so here we only read and render.
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only render; state changes happen in route_focus() / admin_post_skips().
+		$strat = sanitize_key( wp_unslash( $_GET['fstrat'] ?? '' ) );
+		$ff    = absint( $_GET['ff'] ?? 0 );
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+		if ( ! in_array( $strat, array( 'work', 'random' ), true ) ) {
+			$strat = (string) get_user_meta( get_current_user_id(), 'bsm_focus_strat', true );
+			if ( ! in_array( $strat, array( 'work', 'random' ), true ) ) {
+				$strat = 'work';
+			}
+		}
+
+		$scope_name = self::focus_scope_name();
+
+		echo '<div class="wrap" id="bsm-wrap">';
+		bsm_topbar();
+		bsm_render_tabs( 'focus' );
+
+		if ( ! class_exists( 'WPSEO_Meta' ) && ! defined( 'WPSEO_VERSION' ) ) {
+			echo '<div class="notice notice-warning"><p><strong>' .
+				esc_html__( 'Yoast SEO not active.', 'bulk-keyphrase-manager' ) . '</strong> ' .
+				esc_html__( 'Focus scores pages from Yoast fields, so picks will be rough until Yoast is active.', 'bulk-keyphrase-manager' ) .
+				'</p></div>';
+		}
+
+		// ── Top controls: strategy toggle + Skip, all in one row. ──
+		$work_url = self::base_url(
+			array(
+				'tab'     => 'focus',
+				'fstrat'  => 'work',
+				'refocus' => 1,
+			)
+		);
+		$rand_url = self::base_url(
+			array(
+				'tab'     => 'focus',
+				'fstrat'  => 'random',
+				'refocus' => 1,
+			)
+		);
+
+		echo '<div class="bsm-f-controls">';
+		echo '<div class="bsm-f-strat">';
+		printf(
+			'<a class="%s" href="%s">%s</a>',
+			'work' === $strat ? 'is-on' : '',
+			esc_url( $work_url ),
+			esc_html__( 'Needs the most work', 'bulk-keyphrase-manager' )
+		);
+		printf(
+			'<a class="%s" href="%s">%s</a>',
+			'random' === $strat ? 'is-on' : '',
+			esc_url( $rand_url ),
+			esc_html__( 'Surprise me', 'bulk-keyphrase-manager' )
+		);
+		echo '</div>';
+
+		if ( $ff ) {
+			$skip_url = wp_nonce_url(
+				self::base_url(
+					array(
+						'tab'    => 'focus',
+						'fstrat' => $strat,
+						'ffskip' => $ff,
+					)
+				),
+				self::focus_skip_action( $ff )
+			);
+			echo '<a class="bsm-f-skip" href="' . esc_url( $skip_url ) . '">' . esc_html__( 'Skip → show another', 'bulk-keyphrase-manager' ) . '</a>';
+		}
+		echo '</div>';
+
+		/* translators: %s: post type scope name, e.g. "Pages" or "all post types". */
+		echo '<p class="bsm-f-scope">' . esc_html( sprintf( __( 'Scanning: %s', 'bulk-keyphrase-manager' ), $scope_name ) ) . '</p>';
+
+		// Full SEO Health detail for the focused post, rendered inside this tab.
+		if ( $ff && self::focus_eligible( $ff ) ) {
+			self::render_detail( $ff, 'focus' );
+		} else {
+			echo '<div class="bsm-f-empty">' . esc_html__(
+				'Nothing to focus on right now. Either there are no published items for this scope, or you have skipped them all — clear skips under Settings → Focus to bring them back.',
+				'bulk-keyphrase-manager'
+			) . '</div>';
+		}
+
+		echo '</div>';
+	}
+
+	// ── Focus helpers ─────────────────────────────────────────────────────────
+
+	/** Post types Focus scans, following the SEO Health sticky post-type filter. */
+	private static function focus_types(): array {
+		$all   = bsm_get_post_types();
+		$htype = (string) get_user_meta( get_current_user_id(), 'bsm_health_htype', true );
+		if ( '' === $htype || ( 'all' !== $htype && ! isset( $all[ $htype ] ) ) ) {
+			$htype = 'all';
+		}
+		return 'all' === $htype ? array_keys( $all ) : array( $htype );
+	}
+
+	private static function focus_scope_name(): string {
+		$all   = bsm_get_post_types();
+		$htype = (string) get_user_meta( get_current_user_id(), 'bsm_health_htype', true );
+		if ( 'all' !== $htype && isset( $all[ $htype ] ) ) {
+			return $all[ $htype ]->labels->name;
+		}
+		return __( 'all post types', 'bulk-keyphrase-manager' );
+	}
+
+	/** Skipped post IDs (site-wide list, managed under Settings → Focus). */
+	public static function focus_skips(): array {
+		$v = get_option( 'bsm_focus_skips', array() );
+		return is_array( $v ) ? array_values( array_unique( array_map( 'absint', $v ) ) ) : array();
+	}
+
+	public static function focus_skip_action( int $id ): string {
+		return 'bsm_focus_skip_' . $id;
+	}
+
+	public static function focus_add_skip( int $id ): bool {
+		if ( $id <= 0 || ! get_post( $id ) || ! current_user_can( 'edit_post', $id ) ) {
+			return false;
+		}
+		$skips = self::focus_skips();
+		if ( ! in_array( $id, $skips, true ) ) {
+			$skips[] = $id;
+			update_option( 'bsm_focus_skips', $skips, false );
+		}
+		return true;
+	}
+
+	private static function focus_eligible( int $id ): bool {
+		if ( in_array( $id, self::focus_skips(), true ) ) {
+			return false;
+		}
+		$p = get_post( $id );
+		return $p && 'publish' === $p->post_status && current_user_can( 'edit_post', $id );
+	}
+
+	/**
+	 * Pre-render routing for the Focus tab (runs on admin_init, before output):
+	 * process a skip, then make sure a valid focused post is pinned in the URL
+	 * so reloads (including the inline editor's re-audit) stay on the same page.
+	 */
+	public static function route_focus(): void {
+		if ( ! is_admin() ) {
+			return;
+		}
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- read-only routing; the skip branch verifies its own nonce.
+		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
+		if ( 'lookit-bulk-seo' !== $page || ! current_user_can( 'edit_posts' ) ) {
+			return;
+		}
+		// Only act when Focus is genuinely the tab being rendered. This used to
+		// fire on a bare ?page=lookit-bulk-seo too, back when Focus was the
+		// landing tab — which silently redirected every default page load to
+		// Focus regardless of what the router thought the default was.
+		if ( 'focus' !== bsm_resolve_tab() ) {
+			return;
+		}
+
+		$strat = isset( $_GET['fstrat'] ) ? sanitize_key( wp_unslash( $_GET['fstrat'] ) ) : '';
+		if ( ! in_array( $strat, array( 'work', 'random' ), true ) ) {
+			$strat = (string) get_user_meta( get_current_user_id(), 'bsm_focus_strat', true );
+			if ( ! in_array( $strat, array( 'work', 'random' ), true ) ) {
+				$strat = 'work';
+			}
+		}
+		update_user_meta( get_current_user_id(), 'bsm_focus_strat', $strat );
+
+		$ff      = absint( $_GET['ff'] ?? 0 );
+		$ffskip  = absint( $_GET['ffskip'] ?? 0 );
+		$refocus = ! empty( $_GET['refocus'] );
+		// phpcs:enable WordPress.Security.NonceVerification.Recommended
+
+		// Skip is a state change — verify the nonce, record it, then re-pick.
+		if ( $ffskip ) {
+			check_admin_referer( self::focus_skip_action( $ffskip ) );
+			if ( ! self::focus_add_skip( $ffskip ) ) {
+				wp_die( esc_html__( 'Permission denied.', 'bulk-keyphrase-manager' ) );
+			}
+			wp_safe_redirect(
+				self::base_url(
+					array(
+						'tab'    => 'focus',
+						'fstrat' => $strat,
+					)
+				)
+			);
+			exit;
+		}
+
+		// A still-eligible focused post and no forced re-pick → render it as-is.
+		if ( ! $refocus && $ff && self::focus_eligible( $ff ) ) {
+			return;
+		}
+
+		// Otherwise pick a fresh post and pin it in the URL.
+		$post = self::focus_pick( self::focus_types(), $strat, self::focus_skips() );
+		if ( $post ) {
+			wp_safe_redirect(
+				self::base_url(
+					array(
+						'tab'    => 'focus',
+						'fstrat' => $strat,
+						'ff'     => $post->ID,
+					)
+				)
+			);
+			exit;
+		}
+		// No candidate — fall through; render_focus() shows the empty state.
+	}
+
+	/** Settings → Focus: clear all skips, or clear a selected subset. */
+	public static function admin_post_skips(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'bulk-keyphrase-manager' ) );
+		}
+		check_admin_referer( 'bsm_focus_skips' );
+
+		$mode = isset( $_POST['bsm_focus_mode'] ) ? sanitize_key( wp_unslash( $_POST['bsm_focus_mode'] ) ) : '';
+		if ( 'all' === $mode ) {
+			update_option( 'bsm_focus_skips', array(), false );
+		} else {
+			$ids = isset( $_POST['skip_ids'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['skip_ids'] ) ) : array();
+			if ( $ids ) {
+				$remaining = array_values( array_diff( self::focus_skips(), $ids ) );
+				update_option( 'bsm_focus_skips', $remaining, false );
+			}
+		}
+
+		$redirect = add_query_arg(
+			array(
+				'page'     => 'lookit-bulk-seo',
+				'tab'      => 'settings',
+				'pane'     => 'focus',
+				'focusmsg' => 'cleared',
+			),
+			admin_url( 'admin.php' )
+		) . '#focus';
+		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/**
+	 * Choose one post to surface.
+	 *
+	 * 'random' — a random published post of the scoped type(s).
+	 * 'work'   — samples a bounded candidate pool (posts missing a keyphrase or
+	 *            meta description first, since those score lowest), audits up to
+	 *            FOCUS_SCAN_CAP of them, and picks from the worst handful with a
+	 *            little randomness so "Skip" feels fresh.
+	 */
+	/** Drop excluded IDs from a result set in PHP, avoiding post__not_in. */
+	private static function focus_strip( array $posts, array $exclude ): array {
+		$skip = array_flip( array_map( 'absint', $exclude ) );
+		return array_values(
+			array_filter(
+				$posts,
+				static function ( $p ) use ( $skip ) {
+					return ! isset( $skip[ (int) $p->ID ] ) && current_user_can( 'edit_post', (int) $p->ID );
+				}
+			)
+		);
+	}
+
+	private static function focus_pick( array $types, string $strat, array $exclude_ids = array() ): ?WP_Post {
+		$not_in = array_values( array_unique( array_map( 'absint', $exclude_ids ) ) );
+
+		if ( 'random' === $strat ) {
+			// Over-fetch by the size of the skip list and drop the skips in PHP.
+			// post__not_in makes MySQL do the exclusion and degrades badly on
+			// large sites; the skip list is small, so this is the cheaper shape.
+			$q    = new WP_Query(
+				array(
+					'post_type'           => $types,
+					'post_status'         => 'publish',
+					'posts_per_page'      => min( self::FOCUS_SCAN_CAP, count( $not_in ) + 1 ),
+					'orderby'             => 'rand',
+					'ignore_sticky_posts' => true,
+					'no_found_rows'       => true,
+				)
+			);
+			$pool = self::focus_strip( $q->posts, $not_in );
+			return $pool[0] ?? null;
+		}
+
+		// 'work' — prioritise likely-weak posts (no keyphrase or no meta desc).
+		$weak       = new WP_Query(
+			array(
+				'post_type'           => $types,
+				'post_status'         => 'publish',
+				'posts_per_page'      => self::FOCUS_SCAN_CAP,
+				'orderby'             => 'rand',
+				'ignore_sticky_posts' => true,
+				'no_found_rows'       => true,
+				// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- bounded candidate pool.
+				'meta_query'          => array(
+					'relation' => 'OR',
+					array(
+						'key'     => BSM_META_KW,
+						'compare' => 'NOT EXISTS',
+					),
+					array(
+						'key'     => BSM_META_KW,
+						'value'   => '',
+						'compare' => '=',
+					),
+					array(
+						'key'     => BSM_META_DESC,
+						'compare' => 'NOT EXISTS',
+					),
+					array(
+						'key'     => BSM_META_DESC,
+						'value'   => '',
+						'compare' => '=',
+					),
+				),
+			)
+		);
+		$candidates = self::focus_strip( $weak->posts, $not_in );
+
+		// If few weak posts, widen with a random sample so we still have range.
+		if ( count( $candidates ) < 8 ) {
+			$fill       = new WP_Query(
+				array(
+					'post_type'           => $types,
+					'post_status'         => 'publish',
+					'posts_per_page'      => self::FOCUS_SCAN_CAP,
+					'orderby'             => 'rand',
+					'ignore_sticky_posts' => true,
+					'no_found_rows'       => true,
+				)
+			);
+			$seen       = array_merge( $not_in, wp_list_pluck( $candidates, 'ID' ) );
+			$candidates = array_merge( $candidates, self::focus_strip( $fill->posts, $seen ) );
+		}
+
+		if ( ! $candidates ) {
+			return null;
+		}
+
+		$dupe_ids = bsm_duplicate_keyphrase_post_ids( $types );
+
+		// Rank by "need score" (higher = needs more work).
+		$ranked = array();
+		foreach ( $candidates as $p ) {
+			$a        = self::audit_post( $p, $dupe_ids );
+			$content  = (string) $p->post_content;
+			$plain    = trim( wp_strip_all_tags( strip_shortcodes( $content ) ) );
+			$words    = '' === $plain ? 0 : count( preg_split( '/\s+/u', $plain ) );
+			$meta     = trim( (string) get_post_meta( $p->ID, BSM_META_DESC, true ) ) !== '';
+			$imgs     = self::images( $content );
+			$ranked[] = array(
+				'post' => $p,
+				'need' => self::focus_need_score( (int) $a['score'], count( $a['issues'] ), $meta, $words, $imgs ),
+			);
+		}
+		usort(
+			$ranked,
+			static function ( $x, $y ) {
+				return $y['need'] <=> $x['need'];
+			}
+		);
+
+		// Pick from the worst ~40% (at least 3) with a little randomness.
+		$slice_len = max( 3, (int) ceil( count( $ranked ) * 0.4 ) );
+		$slice     = array_slice( $ranked, 0, $slice_len );
+		$pick      = 1 === count( $slice ) ? $slice[0] : $slice[ wp_rand( 0, count( $slice ) - 1 ) ];
+
+		return $pick['post'];
+	}
+
+	private static function focus_need_score( int $score, int $issues, bool $meta, int $words, array $imgs ): float {
+		$n = ( 100 - $score ) * 1.5 + $issues * 4;
+		if ( ! $meta ) {
+			$n += 12; }
+		if ( $words < self::WORDS_THIN ) {
+			$n += 6; }
+		if ( $imgs['total'] > 0 && $imgs['with_alt'] < $imgs['total'] ) {
+			$n += 5; }
+		return $n;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────
@@ -216,12 +616,15 @@ class BSM_Health {
 		if ( 0 === $images['total'] ) {
 			$mg[] = self::chk( 'good', 'Image alt text', 'No inline images to caption.' );
 		} elseif ( $images['with_alt'] === $images['total'] ) {
-			$mg[] = self::chk( 'good', 'Image alt text', 'All ' . $images['total'] . ' images have alt text.' );
+			$check          = self::chk( 'good', 'Image alt text', 'All ' . $images['total'] . ' images have alt text.' );
+			$check['items'] = $images['items']; // allow View images (review / regenerate) even when all pass
+			$mg[]           = $check;
 		} else {
 			$status         = 0 === $images['with_alt'] ? 'fail' : 'warn';
 			$detail         = $images['with_alt'] . ' of ' . $images['total'] . ' images have alt text.';
 			$check          = self::chk( $status, 'Image alt text', $detail, 'media' );
-			$check['files'] = $images['missing']; // searchable filenames for the copy buttons
+			$check['files'] = $images['missing']; // searchable filenames for the fallback copy buttons
+			$check['items'] = $images['items'];   // resolvable images for the inline alt panel
 			$mg[]           = $check;
 		}
 		$groups['Media'] = $mg;
@@ -302,29 +705,49 @@ class BSM_Health {
 		$total    = 0;
 		$with_alt = 0;
 		$missing  = array();
+		$items    = array();
 		if ( preg_match_all( '/<img\b[^>]*>/i', $content, $m ) ) {
 			foreach ( $m[0] as $img ) {
 				++$total;
-				$has_inline = preg_match( '/\balt\s*=\s*("|\')(.*?)\1/i', $img, $a ) && '' !== trim( $a[2] );
-				$src        = '';
+
+				$src = '';
 				if ( preg_match( '/\bsrc\s*=\s*("|\')(.*?)\1/i', $img, $s ) ) {
 					$src = $s[2];
 				}
-				if ( $has_inline ) {
-					++$with_alt;
-					continue;
+				$inline_alt = '';
+				if ( preg_match( '/\balt\s*=\s*("|\')(.*?)\1/i', $img, $a ) ) {
+					$inline_alt = trim( $a[2] );
 				}
-				// No inline alt — credit the media-library alt (what Lookit Media
-				// Master writes to) if we can resolve the image to an attachment.
-				if ( '' !== self::library_alt( $img, $src ) ) {
+
+				// Resolve to an attachment once; the media-library alt (what Lookit
+				// Media Master writes to) counts as alt even when the tag has none.
+				$id      = self::attachment_id_from_img( $img, $src );
+				$lib_alt = $id ? trim( (string) get_post_meta( $id, '_wp_attachment_image_alt', true ) ) : '';
+
+				$cur_alt = '' !== $inline_alt ? $inline_alt : $lib_alt;
+				$has_alt = '' !== $cur_alt;
+				if ( $has_alt ) {
 					++$with_alt;
-					continue;
 				}
-				// Genuinely missing — record a searchable filename for the copy buttons.
-				if ( '' !== $src ) {
-					$name = self::filename_for_search( $src );
-					if ( '' !== $name ) {
-						$missing[] = $name; }
+
+				$fname = '' !== $src ? self::filename_for_search( $src ) : '';
+				if ( ! $has_alt && '' !== $fname ) {
+					$missing[] = $fname; // searchable filenames for the fallback copy buttons
+				}
+
+				// Actionable items = images resolvable to an attachment, so the vision
+				// call can read the file and alt can be written back. Keyed by ID to
+				// dedupe an image used more than once on the page. Includes captioned
+				// images too, so the panel can display/regenerate them.
+				if ( $id ) {
+					$thumb        = wp_get_attachment_image_url( $id, 'medium' );
+					$items[ $id ] = array(
+						'id'       => $id,
+						'thumb'    => $thumb ? $thumb : '',
+						'filename' => '' !== $fname ? $fname : ( 'attachment-' . $id ),
+						'alt'      => $cur_alt,
+						'has_alt'  => $has_alt,
+					);
 				}
 			}
 		}
@@ -332,7 +755,74 @@ class BSM_Health {
 			'total'    => $total,
 			'with_alt' => $with_alt,
 			'missing'  => array_values( array_unique( $missing ) ),
+			'items'    => array_values( $items ),
 		);
+	}
+
+	/**
+	 * Inline image-alt panel for the Media check: a "View images" toggle that
+	 * reveals each resolvable image with a thumbnail, its current alt, and
+	 * Generate / edit / Save controls. Only rendered when the vision endpoint
+	 * is configured (see render_detail()).
+	 *
+	 * @param array $items List of [id, thumb, filename, alt, has_alt].
+	 */
+	private static function render_alt_panel( array $items ): void {
+		$count   = count( $items );
+		$missing = 0;
+		foreach ( $items as $it ) {
+			if ( empty( $it['has_alt'] ) ) {
+				++$missing;
+			}
+		}
+
+		echo '<button type="button" class="bsm-h-altview" aria-expanded="false"><span class="caret">▸</span> ' .
+			esc_html(
+				sprintf(
+				/* translators: %d: number of images on the page. */
+					_n( 'View image (%d)', 'View images (%d)', $count, 'bulk-keyphrase-manager' ),
+					$count
+				)
+			) . '</button>';
+
+		echo '<div class="bsm-h-altpanel" hidden>';
+		echo '<p class="bsm-h-altlede">Images on this page. Generate alt text with Nova Lite vision, edit if needed, then save — it writes to the media library.</p>';
+		echo '<div class="bsm-h-altlist">';
+
+		foreach ( $items as $it ) {
+			$has = ! empty( $it['has_alt'] );
+			echo '<div class="bsm-h-altrow" data-id="' . (int) $it['id'] . '">';
+
+			echo '<div class="bsm-h-altthumb">';
+			if ( ! empty( $it['thumb'] ) ) {
+				echo '<img src="' . esc_url( $it['thumb'] ) . '" alt="" loading="lazy">';
+			} else {
+				echo '<span class="bsm-h-altph">🖼</span>';
+			}
+			echo '<span class="bsm-h-altbadge ' . ( $has ? 'is-ok' : 'is-miss' ) . '">' . esc_html( $has ? 'alt set' : 'no alt' ) . '</span>';
+			echo '</div>';
+
+			echo '<div class="bsm-h-altbody">';
+			echo '<div class="bsm-h-altfn">' . esc_html( $it['filename'] ) . '</div>';
+			echo '<div class="bsm-h-altctrls">';
+			echo '<textarea class="bsm-h-altfield' . ( $has ? '' : ' is-empty' ) . '" rows="2" placeholder="' .
+				esc_attr( $has ? '' : 'No alt text — click Generate' ) . '">' . esc_textarea( (string) $it['alt'] ) . '</textarea>';
+			echo '<div class="bsm-h-altbtns">';
+			echo '<button type="button" class="button button-primary bsm-h-altgen">' . esc_html( $has ? '✦ Regenerate' : '✦ Generate' ) . '</button>';
+			echo '<button type="button" class="button bsm-h-altsave"' . ( $has ? '' : ' disabled' ) . '>Save</button>';
+			echo '</div>'; // .bsm-h-altbtns
+			echo '</div>'; // .bsm-h-altctrls
+			echo '<div class="bsm-h-altmsg" hidden></div>';
+			echo '</div>'; // .bsm-h-altbody
+
+			echo '</div>'; // .bsm-h-altrow
+		}
+
+		echo '</div>'; // .bsm-h-altlist
+		echo '<div class="bsm-h-altfoot"><button type="button" class="button button-primary bsm-h-altgenall"' .
+			( 0 === $missing ? ' disabled' : '' ) . '>✦ Generate all missing (' . (int) $missing . ')</button>' .
+			'<span class="bsm-h-altfootmsg"></span></div>';
+		echo '</div>'; // .bsm-h-altpanel
 	}
 
 	/** Resolve an inline <img> to its attachment ID (0 if not found). */
@@ -417,7 +907,7 @@ class BSM_Health {
 				if ( '' === $href || '#' === $href[0] ) {
 					continue; }
 				$h = wp_parse_url( $href, PHP_URL_HOST );
-				if ( null === $h || $h === $host ) {
+				if ( null === $h || $host === $h ) {
 					$text  = trim( wp_strip_all_tags( $a[3] ) );
 					$out[] = array(
 						'href' => $href,
@@ -520,7 +1010,7 @@ class BSM_Health {
 			echo '<td class="' . ( $words < self::WORDS_THIN ? 'fail' : ( $words < self::WORDS_OK ? 'warn' : 'good' ) ) . '">' . esc_html( (string) $words ) . '</td>';
 			echo '<td class="' . ( $meta ? 'good' : 'fail' ) . '">' . ( $meta ? 'OK' : 'Missing' ) . '</td>';
 			echo '<td class="' . ( $tlen <= self::TITLE_OK ? 'good' : ( $tlen <= self::TITLE_MAX ? 'warn' : 'fail' ) ) . '">' . esc_html( (string) $tlen ) . '</td>';
-			echo '<td class="' . ( 0 === $imgs['total'] || $imgs['with_alt'] === $imgs['total'] ? 'good' : ( 0 === $imgs['with_alt'] ? 'fail' : 'warn' ) ) . '">' . esc_html( $imgs['with_alt'] . '/' . $imgs['total'] ) . '</td>';
+			echo '<td class="' . ( 0 === $imgs['total'] || $imgs['total'] === $imgs['with_alt'] ? 'good' : ( 0 === $imgs['with_alt'] ? 'fail' : 'warn' ) ) . '">' . esc_html( $imgs['with_alt'] . '/' . $imgs['total'] ) . '</td>';
 			echo '<td class="' . ( $links > 0 ? 'good' : 'fail' ) . '">' . esc_html( (string) $links ) . '</td>';
 			echo '<td><span class="bsm-h-ib ' . esc_attr( $ibadge ) . '">' . esc_html( (string) $icount ) . '</span></td>';
 			echo '<td><a class="bsm-h-view" href="' . esc_url( $detail ) . '">View →</a></td>';
@@ -656,7 +1146,7 @@ class BSM_Health {
 				array(
 					'post_type'      => $types,
 					'post_status'    => 'publish',
-					'posts_per_page' => 300, // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- export batches published posts.
+					'posts_per_page' => 300, // phpcs:ignore WordPress.WP.PostsPerPage.posts_per_page_posts_per_page -- bounded export batch.
 					'paged'          => $paged,
 					'orderby'        => 'type title',
 					'order'          => 'ASC',
@@ -878,9 +1368,9 @@ class BSM_Health {
 	// Single-page detail
 	// ─────────────────────────────────────────────────────────────────────────
 
-	private static function render_detail( int $post_id ): void {
+	private static function render_detail( int $post_id, string $context = 'health' ): void {
 		$post = get_post( $post_id );
-		if ( ! $post || 'trash' === $post->post_status ) {
+		if ( ! $post || 'trash' === $post->post_status || ! current_user_can( 'edit_post', $post_id ) ) {
 			echo '<p class="bsm-h-note">That item could not be found.</p>';
 			return;
 		}
@@ -889,10 +1379,12 @@ class BSM_Health {
 		$keyphrase = get_post_meta( $post->ID, BSM_META_KW, true );
 		$dcolor    = $a['score'] >= 80 ? '#46b450' : ( $a['score'] >= 50 ? '#ffb900' : '#dc3232' );
 
-		printf(
-			'<a class="bsm-h-back" href="%s">← Back to Pages &amp; Posts</a>',
-			esc_url( self::base_url() )
-		);
+		if ( 'focus' !== $context ) {
+			printf(
+				'<a class="bsm-h-back" href="%s">← Back to Pages &amp; Posts</a>',
+				esc_url( self::base_url() )
+			);
+		}
 
 		echo '<div class="bsm-h-dhead"><div class="l">';
 		echo '<h2>' . esc_html( get_the_title( $post ) ) . '</h2>';
@@ -911,7 +1403,22 @@ class BSM_Health {
 		if ( $view_link ) {
 			echo '<a class="button" href="' . esc_url( $view_link ) . '" target="_blank" rel="noopener">View live ↗</a>';
 		}
-		echo '<a class="button" href="' . esc_url( self::base_url( array( 'audit_post' => $post->ID ) ) ) . '">↻ Refresh page SEO</a>';
+		if ( 'focus' === $context ) {
+			$strat = (string) get_user_meta( get_current_user_id(), 'bsm_focus_strat', true );
+			if ( ! in_array( $strat, array( 'work', 'random' ), true ) ) {
+				$strat = 'work';
+			}
+			$refresh_url = self::base_url(
+				array(
+					'tab'    => 'focus',
+					'fstrat' => $strat,
+					'ff'     => $post->ID,
+				)
+			);
+		} else {
+			$refresh_url = self::base_url( array( 'audit_post' => $post->ID ) );
+		}
+		echo '<a class="button" href="' . esc_url( $refresh_url ) . '">↻ Refresh page SEO</a>';
 		echo '</div>';
 		echo '</div><div class="r"><b style="color:' . esc_attr( $dcolor ) . '">' . esc_html( (string) $a['score'] ) . '</b><span>Page score</span></div></div>';
 
@@ -921,12 +1428,42 @@ class BSM_Health {
 		$cur_title = (string) get_post_meta( $post->ID, BSM_META_TITLE, true );
 		$cur_desc  = (string) get_post_meta( $post->ID, BSM_META_DESC, true );
 		$kp_str    = (string) $keyphrase;
-		echo '<details class="bsm-h-grp bsm-h-edit"><summary class="gh"><span class="gn">Edit SEO fields</span><span class="gc">writes to Yoast · re-audits on save</span></summary>';
+		// Always-open panel, matching the check groups below. It used to be a
+		// <details>; the summary was too easy to hit by accident and collapse.
+		echo '<div class="bsm-h-grp bsm-h-edit"><div class="gh"><span class="gn">Edit SEO fields</span><span class="gc">writes to Yoast · re-audits on save</span></div>';
 		echo '<div class="bsm-h-edit-body" data-post="' . (int) $post->ID . '">';
 
 		echo '<div class="bsm-h-field"><div class="lbl">Focus keyphrase</div>';
 		echo '<div class="cur">Current: <span>' . ( '' !== $kp_str ? esc_html( $kp_str ) : '— none —' ) . '</span></div>';
 		echo '<div class="row"><input type="text" class="bsm-h-f-kw" value="' . esc_attr( $kp_str ) . '"><button type="button" class="button bsm-h-fill" data-kind="keyphrase" data-target="bsm-h-f-kw">✦ Fill with AI</button></div></div>';
+
+		// Related keyphrases — shown as removable chips so the editor can see
+		// what's already on the page while adding suggestions from below.
+		// Yoast stores these as a JSON array of { keyword, score } objects.
+		$rel_cur = array();
+		$rel_raw = get_post_meta( $post->ID, '_yoast_wpseo_focuskeywords', true );
+		if ( is_string( $rel_raw ) && '' !== $rel_raw ) {
+			$rel_dec = json_decode( $rel_raw, true );
+			if ( is_array( $rel_dec ) ) {
+				foreach ( $rel_dec as $obj ) {
+					$kw = is_array( $obj ) ? ( $obj['keyword'] ?? '' ) : (string) $obj;
+					if ( '' !== trim( (string) $kw ) ) {
+						$rel_cur[] = (string) $kw;
+					}
+				}
+			}
+		}
+		echo '<div class="bsm-h-field"><div class="lbl">Related keyphrases</div>';
+		echo '<div class="cur">Current: <span>' . ( $rel_cur ? esc_html( (string) count( $rel_cur ) ) . ' saved' : '— none —' ) . '</span></div>';
+		echo '<div class="bsm-h-rel-list">';
+		foreach ( $rel_cur as $kw ) {
+			echo '<span class="bsm-h-rel-chip" data-kw="' . esc_attr( $kw ) . '">' . esc_html( $kw ) .
+				'<button type="button" class="bsm-h-rel-x" aria-label="Remove ' . esc_attr( $kw ) . '">×</button></span>';
+		}
+		echo '<span class="bsm-h-rel-none"' . ( $rel_cur ? ' hidden' : '' ) . '>— none —</span>';
+		echo '</div>';
+		echo '<div class="bsm-h-rel-hint">Removals and additions are written when you press Save to Yoast.</div>';
+		echo '</div>';
 
 		echo '<div class="bsm-h-field"><div class="lbl">SEO title</div>';
 		echo '<div class="cur">Current: <span>' . ( '' !== $cur_title ? esc_html( $cur_title ) : '— none —' ) . '</span></div>';
@@ -937,7 +1474,16 @@ class BSM_Health {
 		echo '<div class="row"><textarea class="bsm-h-f-desc" rows="2">' . esc_textarea( $cur_desc ) . '</textarea><button type="button" class="button bsm-h-fill" data-kind="metadesc" data-target="bsm-h-f-desc">✦ Fill with AI</button></div></div>';
 
 		echo '<div class="bsm-h-edit-actions"><button type="button" class="button button-primary bsm-h-save">Save to Yoast</button><span class="bsm-h-save-msg"></span></div>';
-		echo '</div></details>';
+		echo '</div></div>';
+
+		// AI suggestions sit directly under the edit fields: the two feed each
+		// other, and burying them below every check group meant editors scrolled
+		// past them.
+		self::render_ai_suggestions( $post );
+
+		// Inline image-alt panel is available only when the vision endpoint is set;
+		// otherwise the Media check falls back to the copy-filenames + Media Master bridge.
+		$vision_on = '' !== trim( (string) get_option( 'bsm_vision_webhook_url', '' ) );
 
 		foreach ( $a['groups'] as $group => $checks ) {
 			$counts = array(
@@ -950,11 +1496,14 @@ class BSM_Health {
 			echo '<div class="bsm-h-grp"><div class="gh"><span class="gn">' . esc_html( $group ) . '</span>';
 			echo '<span class="gc">' . (int) $counts['good'] . ' pass · ' . (int) $counts['warn'] . ' warn · ' . (int) $counts['fail'] . ' fail</span></div>';
 			foreach ( $checks as $c ) {
-				$icon = 'good' === $c['status'] ? '✓' : ( 'warn' === $c['status'] ? '!' : '✕' );
-				echo '<div class="chk"><div class="ico ' . esc_attr( $c['status'] ) . '">' . esc_html( $icon ) . '</div><div>';
+				$icon      = 'good' === $c['status'] ? '✓' : ( 'warn' === $c['status'] ? '!' : '✕' );
+				$alt_panel = $vision_on && ! empty( $c['items'] ) && 'Image alt text' === $c['label'];
+				$ico_cls   = 'ico ' . $c['status'] . ( $alt_panel ? ' bsm-h-alt-ico' : '' );
+				$det_cls   = 'cd' . ( $alt_panel ? ' bsm-h-alt-detail' : '' );
+				echo '<div class="chk"' . ( $alt_panel ? ' data-bsm-alt="1"' : '' ) . '><div class="' . esc_attr( $ico_cls ) . '">' . esc_html( $icon ) . '</div><div>';
 				echo '<div class="ct">' . esc_html( $c['label'] ) . '</div>';
-				echo '<div class="cd">' . esc_html( $c['detail'] ) . '</div>';
-				if ( ! empty( $c['files'] ) ) {
+				echo '<div class="' . esc_attr( $det_cls ) . '">' . esc_html( $c['detail'] ) . '</div>';
+				if ( ! $alt_panel && ! empty( $c['files'] ) ) {
 					echo '<div class="bsm-h-files">';
 					$total_f = count( $c['files'] );
 					$idx     = 1;
@@ -971,7 +1520,10 @@ class BSM_Health {
 					}
 					echo '</div>';
 				}
-				if ( ! empty( $c['bridge'] ) && 'media' === $c['bridge'] ) {
+				if ( $alt_panel ) {
+					self::render_alt_panel( $c['items'] );
+				}
+				if ( ! $alt_panel && ! empty( $c['bridge'] ) && 'media' === $c['bridge'] ) {
 					// Deep-link into Lookit Media Master's Alt Text Manager, but only
 					// if that plugin is installed (its admin page is registered).
 					$mm_url = menu_page_url( 'lookit-media-master', false );
@@ -983,7 +1535,7 @@ class BSM_Health {
 					}
 				}
 				if ( ! empty( $c['links'] ) ) {
-					echo '<details class="bsm-h-links"><summary>Show ' . count( $c['links'] ) . ' link' . ( 1 === count( $c['links'] ) ? '' : 's' ) . '</summary><ul>';
+					echo '<details class="bsm-h-links"><summary>Show ' . count( $c['links'] ) . ' link' . ( count( $c['links'] ) === 1 ? '' : 's' ) . '</summary><ul>';
 					foreach ( $c['links'] as $lnk ) {
 						echo '<li><a href="' . esc_url( $lnk['href'] ) . '" target="_blank" rel="noopener">' . esc_html( $lnk['text'] ) . '</a><span class="u">' . esc_html( $lnk['href'] ) . '</span></li>';
 					}
@@ -993,17 +1545,21 @@ class BSM_Health {
 			}
 			echo '</div>';
 		}
+	}
 
-		// AI suggestions — all three tasks are served by the existing platform
-		// endpoint (metadesc was already live; subheadings + outline added to the
-		// same n8n workflow). Thin client: the plugin only POSTs context.
-		$has_ai = '' !== trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
-		echo '<div class="bsm-h-grp"><div class="gh"><span class="gn">AI suggestions</span><span class="gc">' .
-			esc_html( $has_ai ? 'Nova Lite · via platform' : 'Not connected' ) . '</span></div>';
+	private static function render_ai_suggestions( WP_Post $post ): void {
+			// AI suggestions — all three tasks are served by the existing platform
+			// endpoint (metadesc was already live; subheadings + outline added to the
+			// same n8n workflow). Thin client: the plugin only POSTs context.
+			$has_ai = '' !== trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
+			echo '<div class="bsm-h-grp"><div class="gh"><span class="gn">AI suggestions</span><span class="gc">' .
+				esc_html( $has_ai ? 'Nova Lite · via platform' : 'Not connected' ) . '</span></div>';
 
 		if ( $has_ai ) {
 			$pid  = (int) $post->ID;
 			$rows = array(
+				array( 'keyphrase', 'Focus keyphrase', 'Suggest focus keyphrases for this page. Generate again for a different set.' ),
+				array( 'related', 'Related keyphrases', 'Suggest related keyphrases to save alongside the focus keyphrase.' ),
 				array( 'metadesc', 'Meta description', 'Write a meta description for this page.' ),
 				array( 'subheadings', 'H2 subheadings', 'Suggest keyphrase-aware H2s to structure the page.' ),
 				array( 'outline', 'Content-expansion outline', 'Suggest sections to add — useful for thin pages.' ),
@@ -1031,7 +1587,7 @@ class BSM_Health {
 				'<div class="cd">Add your platform endpoint under <a href="' . esc_url( self::base_url_settings() ) . '">Settings → AI engine</a> to enable AI suggestions here.</div>' .
 				'</div></div>';
 		}
-		echo '</div>';
+			echo '</div>';
 	}
 
 	private static function base_url_settings(): string {
@@ -1056,18 +1612,36 @@ class BSM_Health {
 		$post_id = absint( $_POST['post_id'] ?? 0 );
 		$kind    = isset( $_POST['kind'] ) ? sanitize_key( wp_unslash( $_POST['kind'] ) ) : 'metadesc';
 		$words   = absint( $_POST['words'] ?? 0 );
-		$post    = $post_id ? get_post( $post_id ) : null;
-		if ( ! $post || ! current_user_can( 'edit_post', $post_id ) ) {
-			wp_send_json_error( 'Invalid post or permission denied.' );
+		$attempt = absint( $_POST['attempt'] ?? 0 );
+		$exclude = sanitize_text_field( wp_unslash( $_POST['exclude'] ?? '' ) );
+		$result  = self::suggest_for_post( $post_id, $kind, $words, $attempt, $exclude );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message() );
+		}
+		wp_send_json_success( $result );
+	}
+
+	public static function suggest_for_post( int $post_id, string $kind, int $words = 0, int $attempt = 0, string $exclude = '' ) {
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
+			return new WP_Error( 'forbidden', 'Invalid post or permission denied.' );
+		}
+		$post = $post_id ? get_post( $post_id ) : null;
+		if ( ! $post ) {
+			return new WP_Error( 'not_found', 'Post not found.' );
 		}
 		if ( ! function_exists( 'bsm_ai_call_webhook' ) ) {
-			wp_send_json_error( 'AI engine unavailable.' );
+			return new WP_Error( 'unavailable', 'AI engine unavailable.' );
 		}
 
+		$rel_n     = max( 1, min( 5, (int) get_option( 'asy_kp_count', 3 ) ) );
 		$map       = array(
 			'keyphrase'   => array(
 				'task'  => 'keyphrase',
-				'count' => 1,
+				'count' => 5,
+			),
+			'related'     => array(
+				'task'  => 'keyphrase',
+				'count' => $rel_n + 1,
 			),
 			'title'       => array(
 				'task'  => 'title',
@@ -1093,25 +1667,115 @@ class BSM_Health {
 		$cfg       = $map[ $kind ] ?? $map['metadesc'];
 		$keyphrase = (string) get_post_meta( $post->ID, BSM_META_KW, true );
 		$word_goal = 'content' === $cfg['task'] ? max( 100, min( 2000, $words ? $words : 600 ) ) : 0;
-		$result    = bsm_ai_call_webhook( $cfg['task'], $post, $cfg['count'], $keyphrase, $word_goal );
+
+		// Re-generate variation (3.39.0). The client sends which attempt this is
+		// and everything it has already been shown, so pressing Generate again
+		// returns a different set. Attempt 1 is a plain first-look request.
+		$extra = array();
+		if ( $attempt > 1 ) {
+			$extra = array(
+				'variation' => $attempt,
+				'seed'      => wp_generate_password( 10, false, false ),
+				'previous'  => array(
+					'keyphrase' => in_array( $kind, array( 'keyphrase', 'related' ), true ) ? $keyphrase : '',
+					'related'   => in_array( $kind, array( 'keyphrase', 'related' ), true ) ? $exclude : '',
+					'metadesc'  => 'metadesc' === $kind ? ( $exclude ? $exclude : (string) get_post_meta( $post->ID, BSM_META_DESC, true ) ) : '',
+					'title'     => 'title' === $kind ? ( $exclude ? $exclude : (string) get_post_meta( $post->ID, BSM_META_TITLE, true ) ) : '',
+				),
+			);
+		}
+
+		$result = bsm_ai_call_webhook( $cfg['task'], $post, $cfg['count'], $keyphrase, $word_goal, $extra );
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( $result->get_error_message() );
+			return $result;
 		}
 
 		if ( is_array( $result ) ) {
-			wp_send_json_success(
-				array(
-					'kind' => $kind,
-					'list' => array_values( $result ),
-				)
+			$list = array_values( $result );
+			// "Related" reuses the keyphrase task: item 0 is the primary, which
+			// belongs in the focus field, not the related list.
+			if ( 'related' === $kind && count( $list ) > 1 ) {
+				$list = array_slice( $list, 1 );
+			}
+			return array(
+				'kind' => $kind,
+				'list' => $list,
 			);
 		}
-		wp_send_json_success(
-			array(
-				'kind' => $kind,
-				'text' => (string) $result,
-			)
+		return array(
+			'kind' => $kind,
+			'text' => (string) $result,
 		);
+	}
+
+	/**
+	 * Save a chosen set of related keyphrases straight to Yoast. There is no
+	 * related-keyphrase input in "Edit SEO fields", so this writes through the
+	 * plugin's canonical writer instead of round-tripping through the form.
+	 */
+	public static function ajax_apply_related(): void {
+		check_ajax_referer( 'bsm_health_save', 'nonce' );
+		if ( ! current_user_can( 'edit_posts' ) ) {
+			wp_send_json_error( 'Permission denied.' );
+		}
+		$post_id = absint( $_POST['post_id'] ?? 0 );
+		if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error( 'Invalid post or permission denied.' );
+		}
+		if ( ! class_exists( 'ASY_Keyphrase_Engine' ) ) {
+			wp_send_json_error( 'Keyphrase engine unavailable.' );
+		}
+
+		$raw  = isset( $_POST['related'] )
+			? (array) map_deep( wp_unslash( $_POST['related'] ), 'sanitize_text_field' )
+			: array();
+		$list = array();
+		foreach ( $raw as $item ) {
+			if ( '' !== trim( (string) $item ) ) {
+				$list[] = $item;
+			}
+		}
+		if ( empty( $list ) ) {
+			wp_send_json_error( 'Nothing selected.' );
+		}
+
+		// Merge with what's already saved rather than replacing it — the edit
+		// panel above shows the existing chips, so applying a suggestion must
+		// add to that list, not wipe it.
+		$existing = array();
+		$rel_raw  = get_post_meta( $post_id, '_yoast_wpseo_focuskeywords', true );
+		if ( is_string( $rel_raw ) && '' !== $rel_raw ) {
+			$rel_dec = json_decode( $rel_raw, true );
+			if ( is_array( $rel_dec ) ) {
+				foreach ( $rel_dec as $obj ) {
+					$kw = is_array( $obj ) ? ( $obj['keyword'] ?? '' ) : (string) $obj;
+					if ( '' !== trim( (string) $kw ) ) {
+						$existing[] = (string) $kw;
+					}
+				}
+			}
+		}
+		$merged = self::merge_related( $existing, $list );
+
+		delete_post_meta( $post_id, '_yoast_wpseo_focuskeywords' );
+		ASY_Keyphrase_Engine::save_related_keyphrases( $post_id, $merged );
+		update_post_meta( $post_id, '_asy_or_keyphrases', implode( ', ', $merged ) );
+		update_post_meta( $post_id, '_asy_or_status', 'done' );
+		delete_post_meta( $post_id, '_asy_or_error' );
+
+		wp_send_json_success( 'Related keyphrases saved.' );
+	}
+
+	public static function merge_related( array $existing, array $added ): array {
+		$merged = array();
+		foreach ( array_merge( $existing, $added ) as $keyword ) {
+			$keyword = trim( preg_replace( '/\s+/', ' ', (string) $keyword ) );
+			$norm    = strtolower( $keyword );
+			if ( '' !== $norm && ! isset( $merged[ $norm ] ) ) {
+				$merged[ $norm ] = $keyword;
+			}
+		}
+		return array_values( $merged );
 	}
 
 	/** Save edited Yoast fields via the plugin's canonical writer, then the client re-audits. */
@@ -1132,6 +1796,137 @@ class BSM_Health {
 		$title     = sanitize_text_field( wp_unslash( $_POST['title'] ?? '' ) );
 
 		bsm_update_fields( $post_id, $keyphrase, $metadesc, $title );
+
+		// Related keyphrases travel with the same save. The client always sends
+		// related_set, so an empty list means "the editor removed them all" and
+		// must clear the meta rather than be treated as nothing to do.
+		if ( ! empty( $_POST['related_set'] ) && class_exists( 'ASY_Keyphrase_Engine' ) ) {
+			$raw  = isset( $_POST['related'] )
+				? (array) map_deep( wp_unslash( $_POST['related'] ), 'sanitize_text_field' )
+				: array();
+			$list = array();
+			foreach ( $raw as $item ) {
+				if ( '' !== trim( (string) $item ) ) {
+					$list[] = $item;
+				}
+			}
+			if ( empty( $list ) ) {
+				delete_post_meta( $post_id, '_yoast_wpseo_focuskeywords' );
+				delete_post_meta( $post_id, '_asy_or_keyphrases' );
+			} else {
+				delete_post_meta( $post_id, '_yoast_wpseo_focuskeywords' );
+				ASY_Keyphrase_Engine::save_related_keyphrases( $post_id, $list, $keyphrase );
+				update_post_meta( $post_id, '_asy_or_keyphrases', implode( ', ', $list ) );
+			}
+		}
+
 		wp_send_json_success( 'Saved.' );
+	}
+
+	/**
+	 * Generate alt text for one attachment via the vision webhook. Returns the
+	 * text only — it does NOT persist, so the editor can review/edit before Save.
+	 * Payload shape matches Lookit Media Master, so the same published Bedrock
+	 * Vision workflow serves both plugins.
+	 */
+	public static function can_edit_image( int $id ): bool {
+		return $id > 0 &&
+			'attachment' === get_post_type( $id ) &&
+			current_user_can( 'upload_files' ) &&
+			current_user_can( 'edit_post', $id ) &&
+			wp_attachment_is_image( $id );
+	}
+
+	public static function save_image_alt( int $id, string $alt ): bool {
+		if ( ! self::can_edit_image( $id ) ) {
+			return false;
+		}
+		update_post_meta( $id, '_wp_attachment_image_alt', sanitize_text_field( $alt ) );
+		return true;
+	}
+
+	public static function ajax_alt_generate(): void {
+		check_ajax_referer( 'bsm_health_alt', 'nonce' );
+		$id     = absint( $_POST['id'] ?? 0 );
+		$result = self::generate_image_alt( $id );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( $result->get_error_message() );
+		}
+		wp_send_json_success(
+			array(
+				'id'  => $id,
+				'alt' => $result,
+			)
+		);
+	}
+
+	public static function generate_image_alt( int $id ) {
+		if ( ! self::can_edit_image( $id ) ) {
+			return new WP_Error( 'invalid_image', 'Not an image.' );
+		}
+		if ( ! function_exists( 'bsm_vision_call' ) ) {
+			return new WP_Error( 'unavailable', 'Vision engine unavailable.' );
+		}
+
+		$file = get_attached_file( $id );
+		if ( ! $file || ! file_exists( $file ) ) {
+			return new WP_Error( 'missing_file', 'Image file not found on disk.' );
+		}
+		// Prefer the medium thumbnail for large originals — smaller payload + cost.
+		if ( filesize( $file ) > 4 * 1024 * 1024 ) {
+			$upload = wp_upload_dir();
+			$turl   = wp_get_attachment_image_url( $id, 'medium' );
+			if ( $turl ) {
+				$rel = str_replace( $upload['baseurl'], $upload['basedir'], $turl );
+				if ( file_exists( $rel ) ) {
+					$file = $rel;
+				}
+			}
+		}
+		if ( filesize( $file ) > 10 * 1024 * 1024 ) {
+			return new WP_Error( 'file_too_large', 'Image too large (>10 MB even after thumbnail fallback).' );
+		}
+
+		$detected = function_exists( 'mime_content_type' ) ? mime_content_type( $file ) : false;
+		$mime     = $detected ? $detected : get_post_mime_type( $id );
+		$allowed  = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+		if ( ! in_array( $mime, $allowed, true ) ) {
+			return new WP_Error( 'invalid_mime', 'Unsupported image type: ' . $mime );
+		}
+
+		// Local file read + base64 for the vision payload; not remote I/O.
+		$raw = file_get_contents( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- reading a local upload for base64 encoding.
+		if ( false === $raw || '' === $raw ) {
+			return new WP_Error( 'read_failed', 'Could not read image file.' );
+		}
+		$data_uri = 'data:' . $mime . ';base64,' . base64_encode( $raw ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- transport encoding for the image payload, not obfuscation.
+
+		$prompt = get_option(
+			'bsm_alt_prompt',
+			'Write a concise, descriptive alt text for this image. Be specific about what is shown. Keep it under 125 characters. Do not start with "Image of" or "Photo of". Return only the alt text, nothing else.'
+		);
+
+		$result = bsm_vision_call( $data_uri, $mime, $prompt );
+		if ( empty( $result['ok'] ) ) {
+			return new WP_Error( 'generation_failed', $result['error'] ?? 'Generation failed.' );
+		}
+		return sanitize_text_field( $result['alt'] );
+	}
+
+	/** Persist generated/edited alt text to the media library. */
+	public static function ajax_alt_save(): void {
+		check_ajax_referer( 'bsm_health_alt', 'nonce' );
+		$id = absint( $_POST['id'] ?? 0 );
+		if ( ! self::can_edit_image( $id ) ) {
+			wp_send_json_error( 'Not an image.' );
+		}
+		$alt = sanitize_text_field( wp_unslash( $_POST['alt'] ?? '' ) );
+		self::save_image_alt( $id, $alt );
+		wp_send_json_success(
+			array(
+				'id'  => $id,
+				'alt' => $alt,
+			)
+		);
 	}
 }
