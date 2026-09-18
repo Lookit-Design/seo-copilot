@@ -88,6 +88,10 @@ class BSM_Health {
 	}
 
 	private static function base_url( array $args = array() ): string {
+		if ( 'focus' === ( $args['tab'] ?? '' ) ) {
+			$args['tab']  = 'reports';
+			$args['view'] = 'focus';
+		}
 		return add_query_arg(
 			array_merge(
 				array(
@@ -126,7 +130,9 @@ class BSM_Health {
 
 		echo '<div class="wrap" id="bsm-wrap">';
 		bsm_topbar();
-		bsm_render_tabs( 'focus' );
+		bsm_render_tabs( 'reports' );
+		echo '<div class="bsm-rep-wrap">';
+		BSM_Reports::nav( 'focus', array(), false );
 
 		if ( ! class_exists( 'WPSEO_Meta' ) && ! defined( 'WPSEO_VERSION' ) ) {
 			echo '<div class="notice notice-warning"><p><strong>' .
@@ -165,7 +171,7 @@ class BSM_Health {
 			esc_url( $rand_url ),
 			esc_html__( 'Surprise me', 'bulk-keyphrase-manager' )
 		);
-		echo '</div>';
+		echo '</div></div>';
 
 		if ( $ff ) {
 			$skip_url = wp_nonce_url(
@@ -267,7 +273,9 @@ class BSM_Health {
 		// fire on a bare ?page=lookit-bulk-seo too, back when Focus was the
 		// landing tab — which silently redirected every default page load to
 		// Focus regardless of what the router thought the default was.
-		if ( 'focus' !== bsm_resolve_tab() ) {
+		$raw_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		$legacy  = 'focus' === $raw_tab;
+		if ( ! $legacy && ! ( 'reports' === bsm_resolve_tab() && function_exists( 'bsm_is_focus_view' ) && bsm_is_focus_view() ) ) {
 			return;
 		}
 
@@ -304,6 +312,18 @@ class BSM_Health {
 
 		// A still-eligible focused post and no forced re-pick → render it as-is.
 		if ( ! $refocus && $ff && self::focus_eligible( $ff ) ) {
+			if ( $legacy ) {
+				wp_safe_redirect(
+					self::base_url(
+						array(
+							'tab'    => 'focus',
+							'fstrat' => $strat,
+							'ff'     => $ff,
+						)
+					)
+				);
+				exit;
+			}
 			return;
 		}
 
@@ -316,6 +336,17 @@ class BSM_Health {
 						'tab'    => 'focus',
 						'fstrat' => $strat,
 						'ff'     => $post->ID,
+					)
+				)
+			);
+			exit;
+		}
+		if ( $legacy ) {
+			wp_safe_redirect(
+				self::base_url(
+					array(
+						'tab'    => 'focus',
+						'fstrat' => $strat,
 					)
 				)
 			);
@@ -1595,10 +1626,16 @@ class BSM_Health {
 				echo '<div class="bsm-h-suggest-out" hidden></div>';
 				echo '</div></div>';
 			}
-			// Generate page content — includes a target word-count control.
+			// Generate page content with an optional section target.
 			echo '<div class="chk"><div class="ico ai">✦</div><div class="bsm-h-suggest-wrap">';
 			echo '<div class="ct">Generate page content</div>';
 			echo '<div class="cd">Draft original body copy for this page at a target length.</div>';
+			echo '<label class="bsm-h-target-label" for="bsm-h-target-' . esc_attr( (string) $pid ) . '">Target content ' .
+				'<span class="sub">optional, paste a subheading or outline item to draft that section only</span></label>';
+			echo '<textarea class="bsm-h-target" id="bsm-h-target-' . esc_attr( (string) $pid ) . '" rows="2" maxlength="300" ' .
+				'placeholder="Leave empty to draft the whole page."></textarea>';
+			echo '<div class="bsm-h-target-state" hidden><span>Drafting one section</span>' .
+				'<button type="button" class="bsm-h-target-clear">Clear and draft the whole page</button></div>';
 			echo '<div class="bsm-h-content-ctrl">Target words <input type="number" class="bsm-h-words" value="600" min="100" max="2000" step="50"> ';
 			echo '<button type="button" class="button button-primary bsm-h-suggest" data-post="' . esc_attr( (string) $pid ) . '" data-kind="content">Generate</button></div>';
 			echo '<div class="bsm-h-suggest-out" hidden></div>';
@@ -1636,14 +1673,15 @@ class BSM_Health {
 		$words   = absint( $_POST['words'] ?? 0 );
 		$attempt = absint( $_POST['attempt'] ?? 0 );
 		$exclude = sanitize_text_field( wp_unslash( $_POST['exclude'] ?? '' ) );
-		$result  = self::suggest_for_post( $post_id, $kind, $words, $attempt, $exclude );
+		$target  = isset( $_POST['target'] ) ? sanitize_textarea_field( wp_unslash( $_POST['target'] ) ) : '';
+		$result  = self::suggest_for_post( $post_id, $kind, $words, $attempt, $exclude, $target );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( $result->get_error_message() );
 		}
 		wp_send_json_success( $result );
 	}
 
-	public static function suggest_for_post( int $post_id, string $kind, int $words = 0, int $attempt = 0, string $exclude = '' ) {
+	public static function suggest_for_post( int $post_id, string $kind, int $words = 0, int $attempt = 0, string $exclude = '', string $target = '' ) {
 		if ( ! current_user_can( 'edit_post', $post_id ) ) {
 			return new WP_Error( 'forbidden', 'Invalid post or permission denied.' );
 		}
@@ -1692,7 +1730,10 @@ class BSM_Health {
 		);
 		$cfg       = $map[ $kind ] ?? $map['metadesc'];
 		$keyphrase = (string) get_post_meta( $post->ID, BSM_META_KW, true );
-		$word_goal = 'content' === $cfg['task'] ? max( 100, min( 2000, $words ? $words : 600 ) ) : 0;
+		$target    = 'content' === $cfg['task'] ? mb_substr( trim( sanitize_textarea_field( $target ) ), 0, 300 ) : '';
+		$word_goal = 'content' === $cfg['task']
+			? max( 100, min( 2000, $words ? $words : ( '' !== $target ? 250 : 600 ) ) )
+			: 0;
 		if ( 'slug' === $kind && ! self::slug_eligible( $post ) ) {
 			return new WP_Error( 'ineligible', 'Only ordinary published pages can have slug suggestions.' );
 		}
@@ -1713,6 +1754,9 @@ class BSM_Health {
 				),
 			);
 		}
+		if ( '' !== $target ) {
+			$extra['target'] = $target;
+		}
 
 		$result = bsm_ai_call_webhook( $cfg['task'], $post, $cfg['count'], $keyphrase, $word_goal, $extra );
 		if ( is_wp_error( $result ) ) {
@@ -1732,6 +1776,9 @@ class BSM_Health {
 
 		if ( is_array( $result ) ) {
 			$list = array_values( $result );
+			if ( in_array( $kind, array( 'keyphrase', 'related' ), true ) && function_exists( 'bsm_clean_keyphrase_list' ) ) {
+				$list = bsm_clean_keyphrase_list( $list );
+			}
 			// "Related" reuses the keyphrase task: item 0 is the primary, which
 			// belongs in the focus field, not the related list.
 			if ( 'related' === $kind && count( $list ) > 1 ) {
@@ -2142,7 +2189,9 @@ class BSM_Health {
 	public static function merge_related( array $existing, array $added ): array {
 		$merged = array();
 		foreach ( array_merge( $existing, $added ) as $keyword ) {
-			$keyword = trim( preg_replace( '/\s+/', ' ', (string) $keyword ) );
+			$keyword = function_exists( 'bsm_clean_keyphrase' )
+				? bsm_clean_keyphrase( $keyword )
+				: trim( preg_replace( '/\s+/', ' ', (string) $keyword ) );
 			$norm    = strtolower( $keyword );
 			if ( '' !== $norm && ! isset( $merged[ $norm ] ) ) {
 				$merged[ $norm ] = $keyword;

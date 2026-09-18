@@ -9,6 +9,7 @@ class Test_Lookit_SEO_Copilot_Uninstall extends WP_UnitTestCase {
 		update_option( 'asy_openrouter_api_key', 'lookit-test-value' );
 		update_option( 'bsm_report_snapshot', array( 'total' => 2 ) );
 		update_option( 'bsm_report_scan_state', array( 'offset' => 1 ) );
+		update_option( 'bsm_report_history', array( array( 'score' => 50 ) ) );
 		$user_id = self::factory()->user->create();
 		update_user_meta( $user_id, 'bsm_task_checks', array( 'url-length' ) );
 		update_user_meta( $user_id, 'bsm_task_done', array( 'url-length' => array( 1 ) ) );
@@ -21,6 +22,7 @@ class Test_Lookit_SEO_Copilot_Uninstall extends WP_UnitTestCase {
 		$this->assertFalse( get_option( 'asy_openrouter_api_key' ) );
 		$this->assertFalse( get_option( 'bsm_report_snapshot' ) );
 		$this->assertFalse( get_option( 'bsm_report_scan_state' ) );
+		$this->assertFalse( get_option( 'bsm_report_history' ) );
 		$this->assertSame( '', get_user_meta( $user_id, 'bsm_task_checks', true ) );
 		$this->assertSame( '', get_user_meta( $user_id, 'bsm_task_done', true ) );
 	}

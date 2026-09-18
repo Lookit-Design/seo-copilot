@@ -196,7 +196,8 @@ class ASY_Processor {
 			$primary = $post->post_title;
 		}
 		if ( '' !== $primary ) {
-			update_post_meta( $post->ID, '_yoast_wpseo_focuskw', sanitize_text_field( $primary ) );
+			$primary = function_exists( 'bsm_clean_keyphrase' ) ? bsm_clean_keyphrase( $primary ) : sanitize_text_field( $primary );
+			update_post_meta( $post->ID, '_yoast_wpseo_focuskw', $primary );
 			$this->log( "Keyphrase ({$kp_source}) set for post {$post->ID}: {$primary}" );
 		}
 
@@ -206,7 +207,9 @@ class ASY_Processor {
 		} elseif ( 'ai' === $rel_source && function_exists( 'bsm_ai_call_webhook' ) ) {
 			$list = ( null !== $ai_kp_list ) ? $ai_kp_list : bsm_ai_call_webhook( 'keyphrase', $post, $related_n + 1, '', 0, $variation );
 			if ( ! is_wp_error( $list ) && is_array( $list ) && count( $list ) > 1 ) {
-				$related = array_slice( $list, 1, $related_n );
+				$related = function_exists( 'bsm_clean_keyphrase_list' )
+					? bsm_clean_keyphrase_list( array_slice( $list, 1, $related_n ) )
+					: array_slice( $list, 1, $related_n );
 				ASY_Keyphrase_Engine::save_related_keyphrases( $post->ID, $related, $primary );
 				update_post_meta( $post->ID, '_asy_or_keyphrases', implode( ', ', $related ) );
 				update_post_meta( $post->ID, '_asy_or_status', 'done' );
@@ -258,6 +261,7 @@ class ASY_Processor {
 			return;
 		}
 
+		$result = function_exists( 'bsm_clean_keyphrase_list' ) ? bsm_clean_keyphrase_list( $result ) : $result;
 		ASY_Keyphrase_Engine::save_related_keyphrases( $post->ID, $result );
 		update_post_meta( $post->ID, '_asy_or_keyphrases', implode( ', ', $result ) );
 		update_post_meta( $post->ID, '_asy_or_status', 'done' );
@@ -299,6 +303,7 @@ class ASY_Processor {
 			wp_send_json_error( $result->get_error_message() );
 		}
 
+		$result = function_exists( 'bsm_clean_keyphrase_list' ) ? bsm_clean_keyphrase_list( $result ) : $result;
 		ASY_Keyphrase_Engine::save_related_keyphrases( $post_id, $result );
 		update_post_meta( $post_id, '_asy_or_keyphrases', implode( ', ', $result ) );
 		update_post_meta( $post_id, '_asy_or_status', 'done' );

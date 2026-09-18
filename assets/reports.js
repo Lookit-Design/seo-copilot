@@ -18,8 +18,175 @@ function bsmCalculateTaskProgress( checks, doneMap ) {
 	return progress;
 }
 
+function bsmRestoreReportTypes( valid, stored ) {
+	'use strict';
+	try {
+		var saved = JSON.parse( stored || '[]' ).filter( function ( key ) {
+			return valid.indexOf( key ) !== -1;
+		} );
+		return saved.length ? saved : valid;
+	} catch ( error ) {
+		return valid;
+	}
+}
+
+function bsmDeriveReportSnapshot( snapshot, selected ) {
+	'use strict';
+	if ( ! snapshot || ! Array.isArray( snapshot.slices ) || ! snapshot.slices.length ) {
+		return snapshot;
+	}
+	var selectedMap = {};
+	selected.forEach( function ( key ) {
+		selectedMap[ key ] = true;
+	} );
+	var slices = snapshot.slices.filter( function ( slice ) {
+		return !! selectedMap[ slice.key ];
+	} );
+	if ( ! slices.length ) {
+		return null;
+	}
+
+	var total = 0;
+	var sum = 0;
+	var issues = 0;
+	var buckets = [ 0, 0, 0, 0 ];
+	var urlN = 0;
+	var urlSum = 0;
+	var urlBands = [ 0, 0, 0, 0 ];
+	var checksBySlug = {};
+	var worst = [];
+	var longest = [];
+	var types = [];
+	var coreN = 0;
+	var coreSum = 0;
+
+	slices.forEach( function ( slice ) {
+		total += Number( slice.n || 0 );
+		sum += Number( slice.sum || 0 );
+		issues += Number( slice.issues || 0 );
+		if ( slice.core ) {
+			coreN += Number( slice.n || 0 );
+			coreSum += Number( slice.sum || 0 );
+		}
+		( slice.buckets || [] ).forEach( function ( value, index ) {
+			buckets[ index ] += Number( value || 0 );
+		} );
+		urlN += Number( slice.url_n || 0 );
+		urlSum += Number( slice.url_sum || 0 );
+		( slice.url_bands || [] ).forEach( function ( value, index ) {
+			urlBands[ index ] += Number( value || 0 );
+		} );
+		( slice.checks || [] ).forEach( function ( check ) {
+			var combined = checksBySlug[ check.slug ] || {
+				label: check.label,
+				slug: check.slug,
+				fail: 0,
+				warn: 0,
+				good: 0,
+				gain: 0
+			};
+			combined.fail += Number( check.fail || 0 );
+			combined.warn += Number( check.warn || 0 );
+			combined.good += Number( check.good || 0 );
+			combined.gain += Number( check.gain || 0 );
+			checksBySlug[ check.slug ] = combined;
+		} );
+		worst = worst.concat( slice.worst || [] );
+		longest = longest.concat( slice.url_long || [] );
+		types.push( {
+			label: slice.label,
+			n: Number( slice.n || 0 ),
+			avg: Number( slice.n || 0 ) ? Math.round( Number( slice.sum || 0 ) / Number( slice.n ) * 10 ) / 10 : 0
+		} );
+	} );
+
+	var listed = {};
+	( snapshot.checks || [] ).forEach( function ( check ) {
+		listed[ check.slug ] = check.listed;
+	} );
+	var score = total ? Math.round( sum / total * 10 ) / 10 : 0;
+	var checks = Object.keys( checksBySlug ).map( function ( slug, index ) {
+		var check = checksBySlug[ slug ];
+		var rawTenths = total ? check.gain / total * 10 : 0;
+		return {
+			label: check.label,
+			slug: check.slug,
+			fail: check.fail,
+			warn: check.warn,
+			good: check.good,
+			affected: check.fail + check.warn,
+			listed: Number( listed[ check.slug ] || 0 ),
+			index: index,
+			tenths: Math.floor( rawTenths + 0.0000001 ),
+			remainder: rawTenths - Math.floor( rawTenths + 0.0000001 )
+		};
+	} ).filter( function ( check ) {
+		return check.affected > 0;
+	} );
+	var targetTenths = Math.round( ( 100 - score ) * 10 );
+	var givenTenths = checks.reduce( function ( value, check ) {
+		return value + check.tenths;
+	}, 0 );
+	var remainders = checks.slice().sort( function ( left, right ) {
+		return right.remainder - left.remainder || left.index - right.index;
+	} );
+	for ( var remainderIndex = 0; remainderIndex < targetTenths - givenTenths && remainders.length; remainderIndex++ ) {
+		remainders[ remainderIndex % remainders.length ].tenths++;
+	}
+	checks.forEach( function ( check ) {
+		check.points = check.tenths / 10;
+		delete check.index;
+		delete check.tenths;
+		delete check.remainder;
+	} );
+	checks.sort( function ( left, right ) {
+		return right.points - left.points || left.label.localeCompare( right.label );
+	} );
+	worst.sort( function ( left, right ) {
+		return left.score - right.score;
+	} );
+	longest.sort( function ( left, right ) {
+		return right.len - left.len;
+	} );
+	types.sort( function ( left, right ) {
+		return right.n - left.n;
+	} );
+
+	return {
+		generated: snapshot.generated,
+		stale: snapshot.stale,
+		tasks_ready: snapshot.tasks_ready,
+		date: snapshot.date,
+		site: snapshot.site,
+		host: snapshot.host,
+		total: total,
+		score: score,
+		core_n: coreN,
+		core: coreN ? Math.round( coreSum / coreN * 10 ) / 10 : 0,
+		top_three: Math.min( 100, score +
+			checks.slice( 0, 3 ).reduce( function ( value, check ) { return value + check.points; }, 0 ) ),
+		issues: total ? Math.round( issues / total * 10 ) / 10 : 0,
+		buckets: buckets,
+		checks: checks,
+		types: types,
+		worst: worst.slice( 0, 12 ),
+		scope: slices.length === snapshot.slices.length ? 'Everything' :
+			slices.map( function ( slice ) { return slice.label; } ).join( ', ' ),
+		urls: {
+			n: urlN,
+			avg: urlN ? Math.round( urlSum / urlN ) : 0,
+			bands: urlBands,
+			ok: snapshot.urls.ok,
+			max: snapshot.urls.max,
+			long: longest.slice( 0, 12 )
+		}
+	};
+}
+
 if ( typeof module !== 'undefined' && module.exports ) {
 	module.exports = bsmCalculateTaskProgress;
+	module.exports.derive = bsmDeriveReportSnapshot;
+	module.exports.restoreTypes = bsmRestoreReportTypes;
 }
 
 ( function () {
@@ -33,6 +200,7 @@ if ( typeof module !== 'undefined' && module.exports ) {
 	var repEl = document.getElementById( 'bsm-rep-report' );
 	var simEl = document.getElementById( 'bsm-rep-sim' );
 	var taskEl = document.getElementById( 'bsm-rep-tasks' );
+	var trendEl = document.getElementById( 'bsm-rep-trends' );
 	var runBtn = document.getElementById( 'bsm-rep-run' );
 	var progressEl = document.getElementById( 'bsm-rep-progress' );
 	var fillEl = document.getElementById( 'bsm-rep-fill' );
@@ -42,6 +210,90 @@ if ( typeof module !== 'undefined' && module.exports ) {
 	var taskPicks = ( taskState.checks || [] ).slice();
 	var taskDone = taskState.done || {};
 	var taskProgress = taskState.progress || { total: 0, done: 0, percent: 0, points: 0, groups: {} };
+	var history = BSM_REPORT.history || {};
+	var slices = snap && Array.isArray( snap.slices ) ? snap.slices : [];
+	var typeStorageKey = 'bsm_rep_types';
+	var selectedTypes = restoreTypes();
+
+	function typeKeys() {
+		return slices.map( function ( slice ) {
+			return slice.key;
+		} );
+	}
+
+	function restoreTypes() {
+		var valid = typeKeys();
+		try {
+			return bsmRestoreReportTypes( valid, window.localStorage.getItem( typeStorageKey ) );
+		} catch ( error ) {
+			return valid;
+		}
+	}
+
+	function storeTypes() {
+		try {
+			window.localStorage.setItem( typeStorageKey, JSON.stringify( selectedTypes ) );
+		} catch ( error ) {
+			void error;
+		}
+	}
+
+	function derivedSnapshot() {
+		return bsmDeriveReportSnapshot( snap, selectedTypes );
+	}
+
+	function filterBar() {
+		if ( ! snap || ! slices.length ) {
+			return '';
+		}
+		var html = '<div class="bsm-rep-typebar" data-typebar><div class="bsm-rep-typehead">' +
+			'<span class="bsm-rep-typelbl">Content included</span><span class="bsm-rep-typeacts">' +
+			'<button type="button" class="bsm-rep-typebtn" data-all>Everything</button>' +
+			'<button type="button" class="bsm-rep-typebtn" data-core>Pages &amp; posts only</button></span></div>' +
+			'<div class="bsm-rep-typechips">';
+		slices.forEach( function ( slice ) {
+			var selected = selectedTypes.indexOf( slice.key ) !== -1;
+			html += '<label class="bsm-rep-chip' + ( selected ? ' on' : '' ) + '">' +
+				'<input type="checkbox" data-type="' + esc( slice.key ) + '"' + ( selected ? ' checked' : '' ) + '>' +
+				'<span class="t">' + esc( slice.label ) + '</span><span class="c">' + number( slice.n ) + '</span></label>';
+		} );
+		return html + '</div></div>';
+	}
+
+	function wireFilter( root ) {
+		var bar = root.querySelector( '[data-typebar]' );
+		if ( ! bar ) {
+			return;
+		}
+		function apply( keys ) {
+			selectedTypes = keys;
+			storeTypes();
+			renderReport();
+			renderSimulator();
+		}
+		bar.querySelectorAll( 'input[data-type]' ).forEach( function ( checkbox ) {
+			checkbox.addEventListener( 'change', function () {
+				var keys = [];
+				bar.querySelectorAll( 'input[data-type]' ).forEach( function ( item ) {
+					if ( item.checked ) {
+						keys.push( item.dataset.type );
+					}
+				} );
+				apply( keys );
+			} );
+		} );
+		bar.querySelector( '[data-all]' ).addEventListener( 'click', function () {
+			apply( typeKeys() );
+		} );
+		bar.querySelector( '[data-core]' ).addEventListener( 'click', function () {
+			var core = slices.filter( function ( slice ) {
+				return slice.core;
+			} ).map( function ( slice ) {
+				return slice.key;
+			} );
+			apply( core.length ? core : typeKeys() );
+		} );
+	}
 
 	function esc( value ) {
 		var element = document.createElement( 'div' );
@@ -81,8 +333,11 @@ if ( typeof module !== 'undefined' && module.exports ) {
 	}
 
 	function renderReport() {
+		var snap = derivedSnapshot();
 		if ( ! snap ) {
-			repEl.innerHTML = '';
+			repEl.innerHTML = filterBar() + '<div class="bsm-rep-empty"><h2>No content types selected</h2>' +
+				'<p>Select at least one content type to build the report.</p></div>';
+			wireFilter( repEl );
 			return;
 		}
 		if ( ! snap.total ) {
@@ -97,9 +352,10 @@ if ( typeof module !== 'undefined' && module.exports ) {
 		} );
 		var top = snap.checks.slice( 0, 3 );
 		var projected = snap.top_three;
-		var html = '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">SEO Health report</div><h2>' +
+		var html = filterBar() + '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">SEO Health report</div><h2>' +
 			esc( snap.site ) + '</h2><div class="bsm-rep-sub">' + esc( snap.host ) + ' · ' + number( snap.total ) +
-			' items audited · ' + esc( snap.date ) + '</div></div><div class="bsm-rep-brand"><b>Lookit Design</b>Prepared with SEO Copilot</div></div>';
+			' items audited · ' + esc( snap.date ) + ' · Included: ' + esc( snap.scope || 'Everything' ) +
+			'</div></div><div class="bsm-rep-brand"><b>Lookit Design</b>Prepared with SEO Copilot</div></div>';
 
 		if ( snap.stale ) {
 			html += '<div class="bsm-rep-stale">This report was generated by an older audit schema. Re-run it before relying on projections.</div>';
@@ -194,6 +450,7 @@ if ( typeof module !== 'undefined' && module.exports ) {
 		html += '<div class="bsm-rep-actions"><button type="button" class="button button-primary" id="bsm-rep-print">Print or save as PDF</button>' +
 			'<span class="bsm-rep-note">Turn off browser headers and footers in the print dialog.</span></div>';
 		repEl.innerHTML = html;
+		wireFilter( repEl );
 		document.getElementById( 'bsm-rep-print' ).addEventListener( 'click', function () {
 			window.print();
 		} );
@@ -210,11 +467,18 @@ if ( typeof module !== 'undefined' && module.exports ) {
 	}
 
 	function renderSimulator() {
-		if ( ! snap || ! snap.total ) {
+		var snap = derivedSnapshot();
+		if ( ! snap ) {
+			simEl.innerHTML = filterBar() + '<div class="bsm-rep-empty"><h2>No content types selected</h2>' +
+				'<p>Select at least one content type to use the simulator.</p></div>';
+			wireFilter( simEl );
+			return;
+		}
+		if ( ! snap.total ) {
 			simEl.innerHTML = '';
 			return;
 		}
-		var html = '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">Impact simulator</div>' +
+		var html = filterBar() + '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">Impact simulator</div>' +
 			'<h2>What would fixing this be worth?</h2><div class="bsm-rep-sub">Select prospective fixes to update the projection.</div></div></div>' +
 			'<div class="bsm-rep-grid bsm-rep-hero bsm-rep-simgrid"><div class="bsm-rep-box bsm-rep-simpanel">' +
 			'<div class="bsm-rep-simscore"><div class="bsm-rep-cap">Projected site score</div><div class="bsm-rep-simrow">' +
@@ -236,6 +500,7 @@ if ( typeof module !== 'undefined' && module.exports ) {
 				'</span></span></label>';
 		} );
 		simEl.innerHTML = html + '</div></div>';
+		wireFilter( simEl );
 
 		var boxes = simEl.querySelectorAll( '.bsm-rep-fix input' );
 		function recalculate() {
@@ -398,6 +663,82 @@ if ( typeof module !== 'undefined' && module.exports ) {
 		} );
 	}
 
+	function renderTrends() {
+		if ( ! trendEl ) {
+			return;
+		}
+		var runs = Array.isArray( history.runs ) ? history.runs : [];
+		var html = '<div class="bsm-rep-head"><div><div class="bsm-rep-eyebrow">Trends</div>' +
+			'<h2>How the site has moved</h2><div class="bsm-rep-sub">One point per completed audit.</div></div></div>';
+		if ( ! runs.length ) {
+			trendEl.innerHTML = html + '<div class="bsm-rep-empty"><h2>No history yet</h2>' +
+				'<p>The first completed audit starts history. Comparisons appear after the second audit.</p></div>';
+			return;
+		}
+
+		var width = 620;
+		var height = 190;
+		var shown = runs.slice( -12 );
+		var x = function ( index ) {
+			return 30 + ( shown.length < 2 ? 280 : index * 560 / ( shown.length - 1 ) );
+		};
+		var y = function ( score ) {
+			return 165 - Math.max( 0, Math.min( 100, score ) ) * 1.4;
+		};
+		var path = shown.map( function ( run, index ) {
+			return ( index ? 'L' : 'M' ) + x( index ) + ' ' + y( run.score );
+		} ).join( ' ' );
+		var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="SEO score over time">' +
+			'<path d="' + path + '" fill="none" stroke="#028673" stroke-width="3"/>';
+		shown.forEach( function ( run, index ) {
+			svg += '<circle cx="' + x( index ) + '" cy="' + y( run.score ) + '" r="5" fill="#fff" stroke="#028673" stroke-width="3">' +
+				'<title>' + esc( run.date ) + ': ' + run.score + '</title></circle>';
+		} );
+		svg += '</svg>';
+		var latest = runs[ runs.length - 1 ];
+		var previous = history.prev;
+		html += '<div class="bsm-rep-grid bsm-rep-2"><div class="bsm-rep-box"><h3>Site score by audit</h3>' +
+			svg + '<p class="bsm-rep-foot">' + number( runs.length ) + ' completed audit' +
+			( runs.length === 1 ? '' : 's' ) + ', up to 50 retained.</p></div>' +
+			'<div class="bsm-rep-box"><h3>Latest audit</h3><div class="bsm-rep-trendscore"><span class="bsm-rep-trendn">' +
+			latest.score + '</span>' + ( previous ? trendDelta( latest.score - previous.score, true ) : '<span>First run</span>' ) +
+			'</div><div class="bsm-rep-simstat"><span>Items audited</span><b>' + number( latest.total ) + '</b></div>' +
+			'<div class="bsm-rep-simstat"><span>Pages &amp; posts average</span><b>' + latest.core + '</b></div>' +
+			'<div class="bsm-rep-simstat"><span>Issues per item</span><b>' + latest.issues + '</b></div></div></div>';
+
+		if ( Array.isArray( history.moved ) && history.moved.length ) {
+			html += '<div class="bsm-rep-grid"><div class="bsm-rep-box"><h3>Check movement</h3>' +
+				'<table class="bsm-rep-t"><thead><tr><th>Check</th><th class="r">Previous</th><th class="r">Now</th><th class="r">Change</th></tr></thead><tbody>';
+			history.moved.forEach( function ( movement ) {
+				html += '<tr><td>' + esc( movement.label ) + '</td><td class="r">' + number( movement.was ) +
+					'</td><td class="r">' + number( movement.now ) + '</td><td class="r">' +
+					trendDelta( movement.now - movement.was, false ) + '</td></tr>';
+			} );
+			html += '</tbody></table></div></div>';
+		}
+
+		html += '<div class="bsm-rep-grid"><div class="bsm-rep-box"><h3>Pages that scored lower</h3>';
+		if ( Array.isArray( history.regressed ) && history.regressed.length ) {
+			html += '<table class="bsm-rep-t"><thead><tr><th>Page</th><th class="r">Was</th><th class="r">Now</th></tr></thead><tbody>';
+			history.regressed.forEach( function ( page ) {
+				html += '<tr><td><a href="' + esc( page.edit ) + '">' + esc( page.title || '(no title)' ) +
+					'</a></td><td class="r">' + page.was + '</td><td class="r">' + page.now + '</td></tr>';
+			} );
+			html += '</tbody></table>';
+		} else {
+			html += '<p class="bsm-rep-foot">' + ( previous ? 'No editable published pages scored lower.' :
+				'Available after the second audit.' ) + '</p>';
+		}
+		trendEl.innerHTML = html + '</div></div>';
+	}
+
+	function trendDelta( value, increaseIsGood ) {
+		var good = increaseIsGood ? value > 0 : value < 0;
+		var className = value === 0 ? 'flat' : ( good ? 'up' : 'down' );
+		var prefix = value > 0 ? '+' : '';
+		return '<span class="bsm-rep-trendpill ' + className + '">' + prefix + Math.round( value * 10 ) / 10 + '</span>';
+	}
+
 	function scan( phase, offset, scanId ) {
 		var body = new FormData();
 		body.append( 'action', 'bsm_report_scan' );
@@ -422,6 +763,9 @@ if ( typeof module !== 'undefined' && module.exports ) {
 				countEl.textContent = number( data.done ) + ' of ' + number( data.total ) + ' scan steps';
 				if ( data.complete ) {
 					snap = data.snapshot;
+					slices = snap.slices || [];
+					selectedTypes = restoreTypes();
+					history = data.history || history;
 					runBtn.disabled = false;
 					runBtn.textContent = 'Re-run audit';
 					countEl.textContent = 'Done. ' + number( snap.total ) + ' items audited.';
@@ -436,6 +780,7 @@ if ( typeof module !== 'undefined' && module.exports ) {
 					renderReport();
 					renderSimulator();
 					renderTasks();
+					renderTrends();
 					return;
 				}
 				scan( data.phase, data.offset, data.scan_id );
@@ -461,4 +806,5 @@ if ( typeof module !== 'undefined' && module.exports ) {
 	renderReport();
 	renderSimulator();
 	renderTasks();
+	renderTrends();
 } )();

@@ -95,7 +95,9 @@ jobs:
         run: vendor/bin/phpunit
 
       - name: Run JavaScript unit tests
-        run: node tests/test-reports-progress.js
+        run: |
+          node tests/test-health-target.js
+          node tests/test-reports-progress.js
 
 
   # Single stable status check that summarises the whole matrix above, so
