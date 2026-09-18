@@ -460,7 +460,7 @@ class Test_Lookit_SEO_Copilot_SEO4 extends WP_UnitTestCase {
 	}
 
 	public function test_routes_assets_version_and_scope_are_exact(): void {
-		$this->assertSame( '3.55.1', BSM_VERSION );
+		$this->assertSame( '3.58.1', BSM_VERSION );
 		$this->assertTrue( has_action( 'wp_ajax_bsm_health_apply_slug' ) );
 		$this->assertTrue( has_action( 'wp_ajax_bsm_task_items' ) );
 		$runtime = file_get_contents( dirname( __DIR__ ) . '/assets/reports.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source assertion.

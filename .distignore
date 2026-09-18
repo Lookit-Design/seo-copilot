@@ -4,6 +4,7 @@
 .idea/
 bin/
 build/
+n8n/
 tests/
 node_modules/
 vendor/

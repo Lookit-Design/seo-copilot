@@ -334,9 +334,9 @@ class Test_Lookit_SEO_Copilot_SEO5 extends WP_UnitTestCase {
 			array( 'Website Report', 'Impact Simulator', 'Task Manager', 'Trends', 'Focus' ),
 			array_values( BSM_Reports::views() )
 		);
-		$this->assertFileDoesNotExist( dirname( __DIR__ ) . '/includes/class-bsm-links.php' );
-		$this->assertStringNotContainsString( 'BSM_LINKS_UI', $main );
-		$this->assertStringNotContainsString( 'bsm_links_', $main );
+		$this->assertFileExists( dirname( __DIR__ ) . '/includes/class-bsm-links.php' );
+		$this->assertFalse( BSM_LINKS_UI );
+		$this->assertStringNotContainsString( "add_action( 'wp_ajax_bsm_links_", $main );
 		$this->assertSame( array( 'view', 'fstrat', 'ff' ), bsm_view_params( 'reports' ) );
 		$health_js = file_get_contents( dirname( __DIR__ ) . '/assets/health.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source assertion.
 		$this->assertStringContainsString( "words.dataset.bsmUserSet = '1'", $health_js );

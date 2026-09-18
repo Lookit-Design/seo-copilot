@@ -4,7 +4,7 @@ Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.55.1
+Stable tag: 3.58.1
 License: GPL-2.0+
 Author: Lookit Design
 Author URI: https://lookitai.com
@@ -19,7 +19,7 @@ Main views:
 * **Bulk Editor** — edit keyphrases and meta descriptions across all post types (incl. JetEngine CPTs), with filters, templates, and bulk fill.
 * **Auto SEO Manager** — per-post-type rules that auto-fill the focus keyphrase, meta description, and related keyphrases when a post is published. Uses PHP content extraction + the free Datamuse API (no AI key, no credits). Includes a per-post "Lock SEO Fields" metabox and a Test & Reprocess tool.
 * **SEO Health** — audit every post type/page against on-page SEO best practices (keyphrase optimization, titles & meta, content quality, media alt text, internal links), with a health score, per-page drill-down, and a priority-fix list. On-page checks run entirely in WordPress; deeper checks (Core Web Vitals, site crawl, Search Console, AI suggestions) are surfaced as platform-connected features.
-* **Reports** — run a batched site audit, review site-wide scores and highest-impact fixes, and simulate how selected improvements would affect the score.
+* **Reports** — run a batched site audit, review site-wide scores and highest-impact fixes, simulate improvements, manage tasks, compare trends, and use the page-level Focus workflow.
 * **Settings** — build reusable keyphrase and meta-description templates and browse available meta fields (JetEngine, ACF, Meta Box, post meta).
 
 == External Services ==
@@ -30,22 +30,35 @@ This plugin connects to the Datamuse API (https://api.datamuse.com) to expand ke
 * When: on publish, on Elementor save, and when "Generate Keyphrases" is run from the Test & Reprocess tool.
 * Datamuse requires no account or API key.
 * Datamuse Terms / about: https://www.datamuse.com/api/
+* Datamuse privacy policy: https://www.datamuse.com/privacy/
 
-This plugin can also connect to a Lookit platform webhook (self-hosted n8n) that relays requests to AWS Bedrock (Amazon Nova Lite) to generate focus keyphrases and meta descriptions. It is only called from the Bulk Editor when the "AI — Nova Lite via platform" source is chosen and a Fill action is run.
+This plugin can also connect to a Lookit platform webhook (self-hosted n8n) that relays requests to AWS Bedrock (Amazon Nova Lite) to generate keyphrases, SEO titles, meta descriptions, subheadings, outlines, and draft content.
 
-* What is sent: the page title, a short content excerpt, the primary category/term, and the post-type label.
-* When: only on an explicit AI Fill action in the Bulk Editor.
-* Endpoint is configured by the site owner; no AWS keys are stored in WordPress.
-* [Vadim] add auth on the webhook and finalize vendor ToS/Privacy links before WP.org submission.
+* What is sent: the site name, page title, bounded content excerpt, primary category/term, post-type label, current keyphrase, generation target and word count when applicable, and bounded prior results when requesting a variation.
+* When: on an explicit AI action in the Bulk Editor, SEO Health, or post editor, and when an enabled Auto SEO rule processes a published post.
+* The endpoint and required bearer token are configured by the site owner. No AWS keys are stored in WordPress.
+* n8n Sustainable Use License: https://github.com/n8n-io/n8n/blob/master/LICENSE.md
+* n8n privacy policy: https://n8n.io/legal/privacy/
+* AWS service terms: https://aws.amazon.com/service-terms/
+* AWS privacy notice: https://aws.amazon.com/privacy/
 
 This plugin can also connect to a separate Lookit platform webhook (self-hosted n8n) that relays an image to AWS Bedrock (Amazon Nova Lite vision) to generate image alt text. It is only called from SEO Health → Media when a "Generate" (or "Generate all missing") action is run on an image, and only when a vision endpoint has been configured.
 
 * What is sent: the image itself (as a base64 data URI), its MIME type, a generation prompt, and the site name/URL.
 * When: only on an explicit alt-text Generate action in SEO Health.
 * Endpoint is configured by the site owner; supports an optional Bearer token. No AWS keys are stored in WordPress.
-* [Vadim] add/verify auth on the vision webhook, rate-limit the generate endpoint, and finalize vendor ToS/Privacy links before WP.org submission.
+* n8n Sustainable Use License: https://github.com/n8n-io/n8n/blob/master/LICENSE.md
+* n8n privacy policy: https://n8n.io/legal/privacy/
+* AWS service terms: https://aws.amazon.com/service-terms/
+* AWS privacy notice: https://aws.amazon.com/privacy/
 
 == Changelog ==
+
+= 3.58.1 =
+* Added the dormant internal-link scanner and safe classic and Elementor insertion engine behind the disabled BSM_LINKS_UI constant.
+* Removed the unused OpenRouter integration and legacy settings surface.
+* Added bearer authentication for text-generation webhooks and a tested n8n Bedrock workflow.
+* Expanded uninstall cleanup for plugin options, scan state, post metadata, and user preferences.
 
 = 3.55.1 =
 * Added targeted section drafting, punctuation-free keyphrases, report content-type filters, audit trends, and Focus inside Reports.
