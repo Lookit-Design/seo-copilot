@@ -9,6 +9,8 @@ class Test_Lookit_SEO_Copilot_Settings extends WP_UnitTestCase {
 
 	public function tear_down() {
 		delete_option( 'bsm_ai_webhook_token' );
+		delete_option( 'bsm_ai_webhook_url' );
+		remove_all_filters( 'pre_http_request' );
 		parent::tear_down();
 	}
 
@@ -70,7 +72,24 @@ class Test_Lookit_SEO_Copilot_Settings extends WP_UnitTestCase {
 		$this->assertSame( 'Generated description.', $result );
 		$this->assertSame( 'Bearer ' . self::SECRET, $request['headers']['Authorization'] );
 		$this->assertStringNotContainsString( self::SECRET, $request['body'] );
-		remove_all_filters( 'pre_http_request' );
-		delete_option( 'bsm_ai_webhook_url' );
+	}
+
+	public function test_text_generation_requires_token_before_sending_content() {
+		$post_id = self::factory()->post->create( array( 'post_status' => 'publish' ) );
+		update_option( 'bsm_ai_webhook_url', 'https://platform.example.test/text' );
+		$requests = 0;
+		add_filter(
+			'pre_http_request',
+			static function ( $response ) use ( &$requests ) {
+				++$requests;
+				return $response;
+			}
+		);
+
+		$result = bsm_ai_call_webhook( 'metadesc', get_post( $post_id ) );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'no_webhook_token', $result->get_error_code() );
+		$this->assertSame( 0, $requests );
 	}
 }

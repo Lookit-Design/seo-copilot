@@ -1975,9 +1975,6 @@ function bsm_ajax_save_kp_count() {
  * Request:  ids (csv), task ('keyphrase'|'metadesc'), count, kw[<id>] (optional)
  * Response: { results: { <id>: {primary,related}|{text} }, errors: {<id>:msg} }
  *
- * NOTE for Vadim (pre-production): the n8n webhook currently has no auth —
- * add a shared secret / Header Auth before exposing this for real. Also add
- * the == External Services == disclosure in readme.txt for this endpoint.
  */
 function bsm_ajax_ai_fill() {
 	check_ajax_referer( BSM_AJAX_NONCE, 'nonce' );
@@ -1988,6 +1985,9 @@ function bsm_ajax_ai_fill() {
 	$webhook = trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
 	if ( empty( $webhook ) ) {
 		wp_send_json_error( 'AI engine not configured — set the webhook URL in the AI engine box above.' );
+	}
+	if ( '' === trim( (string) get_option( 'bsm_ai_webhook_token', '' ) ) ) {
+		wp_send_json_error( 'AI engine not configured — set the bearer token in Settings.' );
 	}
 
 	$task = sanitize_key( wp_unslash( $_POST['task'] ?? 'keyphrase' ) );
@@ -2152,6 +2152,9 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 	$webhook = trim( (string) get_option( 'bsm_ai_webhook_url', '' ) );
 	if ( empty( $webhook ) ) {
 		return new WP_Error( 'no_webhook', 'AI engine not configured — set the webhook URL in Settings.' );
+	}
+	if ( '' === trim( (string) get_option( 'bsm_ai_webhook_token', '' ) ) ) {
+		return new WP_Error( 'no_webhook_token', 'AI engine not configured — set the bearer token in Settings.' );
 	}
 
 	$type_obj   = get_post_type_object( $post->post_type );

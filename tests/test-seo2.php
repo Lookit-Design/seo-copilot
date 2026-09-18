@@ -7,6 +7,16 @@
 
 class Test_Lookit_SEO_Copilot_SEO2 extends WP_UnitTestCase {
 
+	public function set_up(): void {
+		parent::set_up();
+		add_option( 'bsm_ai_webhook_token', 'test-bearer-token', '', false );
+	}
+
+	public function tear_down(): void {
+		delete_option( 'bsm_ai_webhook_token' );
+		parent::tear_down();
+	}
+
 	private function reset_processor(): void {
 		$property = new ReflectionProperty( ASY_Processor::class, 'processed_ids' );
 		if ( PHP_VERSION_ID < 80100 ) {
