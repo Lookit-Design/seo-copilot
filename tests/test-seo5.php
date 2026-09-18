@@ -16,6 +16,7 @@ class Test_Lookit_SEO_Copilot_SEO5 extends WP_UnitTestCase {
 		delete_option( BSM_Reports::OPTION );
 		delete_option( BSM_Reports::STATE_OPTION );
 		delete_option( BSM_Reports::HISTORY );
+		add_option( 'bsm_ai_webhook_token', 'test-bearer-token', '', false );
 	}
 
 	public function tear_down(): void {
@@ -24,6 +25,7 @@ class Test_Lookit_SEO_Copilot_SEO5 extends WP_UnitTestCase {
 		delete_option( BSM_Reports::OPTION );
 		delete_option( BSM_Reports::STATE_OPTION );
 		delete_option( BSM_Reports::HISTORY );
+		delete_option( 'bsm_ai_webhook_token' );
 		parent::tear_down();
 	}
 
