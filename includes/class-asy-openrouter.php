@@ -140,7 +140,9 @@ class ASY_OpenRouter {
 
 		// Sanitize and limit
 		$keyphrases = array_slice(
-			array_map( 'sanitize_text_field', array_filter( $keyphrases ) ),
+			function_exists( 'bsm_clean_keyphrase_list' )
+				? bsm_clean_keyphrase_list( array_filter( $keyphrases ) )
+				: array_map( 'sanitize_text_field', array_filter( $keyphrases ) ),
 			0,
 			$count
 		);
@@ -170,8 +172,12 @@ class ASY_OpenRouter {
 
 		$objects = array();
 		foreach ( $keyphrases as $kp ) {
+			$kp = function_exists( 'bsm_clean_keyphrase' ) ? bsm_clean_keyphrase( $kp ) : sanitize_text_field( $kp );
+			if ( '' === $kp ) {
+				continue;
+			}
 			$objects[] = array(
-				'keyword' => sanitize_text_field( $kp ),
+				'keyword' => $kp,
 				'score'   => '',
 			);
 		}

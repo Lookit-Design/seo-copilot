@@ -52,6 +52,9 @@ class ASY_Keyphrase_Engine {
 		// ── Merge, deduplicate, limit ─────────────────────────────────────
 		$all = array_merge( $content_phrases, $expanded );
 		$all = self::deduplicate( $all );
+		if ( function_exists( 'bsm_clean_keyphrase_list' ) ) {
+			$all = bsm_clean_keyphrase_list( $all );
+		}
 
 		// Don't repeat the focus keyphrase's words. Read the keyphrase actually
 		// set on the post (Auto SEO sets it just before this runs); fall back to
@@ -893,15 +896,18 @@ class ASY_Keyphrase_Engine {
 		// Never let a related keyphrase repeat the focus keyphrase. Use the
 		// phrase passed in (e.g. one staged in the Bulk Editor) or, failing that,
 		// the focus keyphrase saved on the post. Also de-duplicate the list.
-		$focus      = ( '' !== $exclude )
+		$focus = ( '' !== $exclude )
 			? $exclude
 			: (string) get_post_meta( $post_id, '_yoast_wpseo_focuskw', true );
+		if ( function_exists( 'bsm_clean_keyphrase' ) ) {
+			$focus = bsm_clean_keyphrase( $focus );
+		}
 		$focus_norm = strtolower( trim( preg_replace( '/\s+/', ' ', $focus ) ) );
 
 		$seen    = array();
 		$objects = array();
 		foreach ( $keyphrases as $kp ) {
-			$kp   = sanitize_text_field( $kp );
+			$kp   = function_exists( 'bsm_clean_keyphrase' ) ? bsm_clean_keyphrase( $kp ) : sanitize_text_field( $kp );
 			$norm = strtolower( trim( preg_replace( '/\s+/', ' ', $kp ) ) );
 			if ( '' === $norm || $norm === $focus_norm || isset( $seen[ $norm ] ) ) {
 				continue;

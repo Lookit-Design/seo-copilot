@@ -1,6 +1,22 @@
 /* Lookit Bulk SEO Manager — SEO Health tab behaviours */
+function bsmTargetWordValue( target, current, userSet ) {
+	'use strict';
+	if ( userSet ) {
+		return current;
+	}
+	return target ? '250' : '600';
+}
+
+if ( typeof module !== 'undefined' && module.exports ) {
+	module.exports = bsmTargetWordValue;
+}
+
 ( function () {
 	'use strict';
+
+	if ( typeof document === 'undefined' ) {
+		return;
+	}
 
 	// Clicking anywhere on an audited row opens its detail (the "View" link
 	// remains the keyboard-accessible path).
@@ -51,8 +67,13 @@
 			fd.append( 'attempt', String( btn.bsmAttempt ) );
 			fd.append( 'exclude', btn.bsmSeen.slice( -12 ).join( ', ' ) );
 			var wordsInput = wrap.querySelector( '.bsm-h-words' );
+			var targetBox = wrap.querySelector( '.bsm-h-target' );
+			var targetValue = targetBox ? targetBox.value.trim() : '';
 			if ( wordsInput ) {
-				fd.append( 'words', wordsInput.value || '600' );
+				fd.append( 'words', wordsInput.value || ( targetValue ? '250' : '600' ) );
+			}
+			if ( targetValue ) {
+				fd.append( 'target', targetValue );
 			}
 
 			fetch( BSM_HEALTH.ajax_url, { method: 'POST', credentials: 'same-origin', body: fd } )
@@ -80,9 +101,28 @@
 							return;
 						}
 						var ul = document.createElement( 'ul' );
+						var canTarget = ( j.data.kind === 'subheadings' || j.data.kind === 'outline' ) &&
+							!! document.querySelector( '.bsm-h-target' );
+						if ( canTarget ) {
+							ul.className = 'bsm-h-targetable';
+						}
 						j.data.list.forEach( function ( item ) {
 							var li = document.createElement( 'li' );
-							li.textContent = item; // textContent avoids any HTML injection
+							if ( canTarget ) {
+								var span = document.createElement( 'span' );
+								var use = document.createElement( 'button' );
+								span.textContent = item;
+								use.type = 'button';
+								use.className = 'button button-small bsm-h-use-target';
+								use.textContent = 'Use as target';
+								use.addEventListener( 'click', function () {
+									bsmSetTarget( item );
+								} );
+								li.appendChild( span );
+								li.appendChild( use );
+							} else {
+								li.textContent = item;
+							}
 							ul.appendChild( li );
 						} );
 						out.appendChild( ul );
@@ -136,6 +176,66 @@
 				} );
 		} );
 	} );
+
+	function bsmTargetSync() {
+		var box = document.querySelector( '.bsm-h-target' );
+		if ( ! box ) {
+			return;
+		}
+		var wrap = box.closest( '.bsm-h-suggest-wrap' ) || document;
+		var state = wrap.querySelector( '.bsm-h-target-state' );
+		var words = wrap.querySelector( '.bsm-h-words' );
+		var button = wrap.querySelector( '.bsm-h-suggest[data-kind="content"]' );
+		var targeted = box.value.trim() !== '';
+
+		box.classList.toggle( 'is-set', targeted );
+		if ( state ) {
+			state.hidden = ! targeted;
+		}
+		if ( words && ! words.dataset.bsmUserSet ) {
+			words.value = bsmTargetWordValue( targeted, words.value, false );
+		}
+		if ( button && ! button.disabled ) {
+			var label = targeted ? 'Generate section' : 'Generate';
+			button.textContent = label;
+			button.setAttribute( 'data-label', label );
+		}
+	}
+
+	function bsmSetTarget( text ) {
+		var box = document.querySelector( '.bsm-h-target' );
+		if ( ! box ) {
+			return;
+		}
+		box.value = text;
+		bsmTargetSync();
+		box.classList.add( 'is-flash' );
+		window.setTimeout( function () {
+			box.classList.remove( 'is-flash' );
+		}, 900 );
+		box.scrollIntoView( { behavior: 'smooth', block: 'center' } );
+	}
+
+	document.querySelectorAll( '.bsm-h-target' ).forEach( function ( box ) {
+		box.addEventListener( 'input', bsmTargetSync );
+	} );
+	document.querySelectorAll( '.bsm-h-words' ).forEach( function ( words ) {
+		words.addEventListener( 'input', function () {
+			words.dataset.bsmUserSet = '1';
+		} );
+	} );
+	document.querySelectorAll( '.bsm-h-target-clear' ).forEach( function ( button ) {
+		button.addEventListener( 'click', function () {
+			var wrap = button.closest( '.bsm-h-suggest-wrap' );
+			var box = wrap ? wrap.querySelector( '.bsm-h-target' ) : null;
+			if ( box ) {
+				box.value = '';
+				bsmTargetSync();
+				box.focus();
+			}
+		} );
+	} );
+	bsmTargetSync();
 
 	/* ── Related keyphrase chips (Edit SEO fields) ─────────────────────────── */
 

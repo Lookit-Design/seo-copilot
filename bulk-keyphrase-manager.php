@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.50.1
+ * Version:      3.55.1
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.50.1' );
+define( 'BSM_VERSION', '3.55.1' );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -1630,10 +1630,56 @@ function bsm_ajax_fill_keyphrases() {
 				$keyphrase = $post->post_title;
 		}
 
-		$results[ $id ] = sanitize_text_field( $keyphrase );
+		$results[ $id ] = bsm_clean_keyphrase( $keyphrase );
 	}
 
 	wp_send_json_success( $results );
+}
+
+/**
+ * Remove punctuation that prevents Yoast from matching a keyphrase.
+ *
+ * @param string $phrase Raw keyphrase.
+ * @return string
+ */
+function bsm_clean_keyphrase( $phrase ) {
+	$phrase = (string) $phrase;
+	if ( '' === trim( $phrase ) ) {
+		return '';
+	}
+
+	$out = html_entity_decode( wp_strip_all_tags( $phrase ), ENT_QUOTES, 'UTF-8' );
+	$out = str_replace(
+		array( "\xE2\x80\x98", "\xE2\x80\x99", "\xE2\x80\x9C", "\xE2\x80\x9D", "\xC2\xA0" ),
+		array( "'", "'", ' ', ' ', ' ' ),
+		$out
+	);
+	$out = preg_replace_callback(
+		'/\b(?:\p{L}\.)+(?:\p{L}(?![\p{L}\p{N}]))?/u',
+		static function ( array $matches ): string {
+			return str_replace( '.', '', $matches[0] );
+		},
+		$out
+	);
+	$out = preg_replace( '/[.,:;!?\/\\\\|&+=~*@#%^$"“”«»()\[\]{}<>–—_]+/u', ' ', $out );
+	$out = preg_replace( "/(?<!\p{L})'|'(?!\p{L})/u", ' ', $out );
+	$out = preg_replace( "/[^\p{L}\p{N}\s'\-]+/u", ' ', $out );
+	$out = preg_replace( '/\s+-+\s+/u', ' ', $out );
+	$out = preg_replace( '/\s+/u', ' ', $out );
+	$out = trim( $out, " \t\n\r-'" );
+
+	return apply_filters( 'bsm_clean_keyphrase', sanitize_text_field( $out ), $phrase );
+}
+
+/**
+ * Normalize a list of keyphrases.
+ *
+ * @param array $phrases Raw keyphrases.
+ * @return array
+ */
+function bsm_clean_keyphrase_list( array $phrases ): array {
+	$cleaned = array_map( 'bsm_clean_keyphrase', $phrases );
+	return array_values( array_filter( $cleaned, 'strlen' ) );
 }
 
 /**
@@ -1843,7 +1889,7 @@ function bsm_ajax_suggest_keyphrase() {
 
 	$pick = '';
 	foreach ( (array) $list as $candidate ) {
-		$candidate = trim( sanitize_text_field( $candidate ) );
+		$candidate = bsm_clean_keyphrase( $candidate );
 		if ( '' === $candidate ) {
 			continue;
 		}
@@ -2017,11 +2063,15 @@ function bsm_ajax_ai_fill() {
 				$arr = json_decode( $m[0], true );
 			}
 			if ( is_array( $arr ) && ! empty( $arr ) ) {
-				$arr            = array_values( array_map( 'sanitize_text_field', array_filter( $arr ) ) );
+				$arr = bsm_clean_keyphrase_list( array_filter( $arr ) );
+				if ( empty( $arr ) ) {
+					$errors[ $id ] = 'Empty keyphrase after cleanup.';
+					continue;
+				}
 				$results[ $id ] = array( 'primary' => $arr[0] );
 			} else {
 				// Model returned a bare phrase, not an array — use as-is.
-				$results[ $id ] = array( 'primary' => sanitize_text_field( $text ) );
+				$results[ $id ] = array( 'primary' => bsm_clean_keyphrase( $text ) );
 			}
 		} else {
 			$val = sanitize_text_field( $text );
@@ -2112,6 +2162,9 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 	// variation/seed/previous so the workflow can return a different answer on
 	// each run. Never allowed to overwrite the core keys above.
 	if ( ! empty( $extra ) && is_array( $extra ) ) {
+		if ( isset( $extra['target'] ) ) {
+			$extra['target'] = mb_substr( sanitize_textarea_field( (string) $extra['target'] ), 0, 300 );
+		}
 		$payload = array_merge( $extra, $payload );
 	}
 
@@ -2141,9 +2194,11 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 			$arr = json_decode( $m[0], true );
 		}
 		if ( is_array( $arr ) && ! empty( $arr ) ) {
-			return array_values( array_map( 'sanitize_text_field', array_filter( $arr ) ) );
+			return 'keyphrase' === $task
+				? bsm_clean_keyphrase_list( array_filter( $arr ) )
+				: array_values( array_map( 'sanitize_text_field', array_filter( $arr ) ) );
 		}
-		return array( sanitize_text_field( $text ) );
+		return array( 'keyphrase' === $task ? bsm_clean_keyphrase( $text ) : sanitize_text_field( $text ) );
 	}
 	// Full page content — return as-is (paragraph text), no length cap.
 	if ( 'content' === $task ) {
@@ -2193,8 +2248,8 @@ function bsm_ajax_asy_ai_generate() {
 	if ( is_wp_error( $kp ) ) {
 		wp_send_json_error( $kp->get_error_message() );
 	}
-	$primary = $kp[0];
-	$related = array_slice( $kp, 1, $related_n );
+	$primary = bsm_clean_keyphrase( $kp[0] );
+	$related = bsm_clean_keyphrase_list( array_slice( $kp, 1, $related_n ) );
 
 	$desc = bsm_ai_call_webhook( 'metadesc', $post, 1, $primary );
 	if ( is_wp_error( $desc ) ) {
@@ -2202,7 +2257,7 @@ function bsm_ajax_asy_ai_generate() {
 	}
 
 	// Write to Yoast (same meta keys the rest of the plugin uses).
-	update_post_meta( $post_id, '_yoast_wpseo_focuskw', sanitize_text_field( $primary ) );
+	update_post_meta( $post_id, '_yoast_wpseo_focuskw', $primary );
 	if ( ! empty( $related ) && class_exists( 'ASY_Keyphrase_Engine' ) ) {
 		ASY_Keyphrase_Engine::save_related_keyphrases( $post_id, $related, $primary );
 	}
@@ -2284,6 +2339,7 @@ function bsm_ajax_related_fill() {
 		if ( ! empty( $related ) && class_exists( 'ASY_Keyphrase_Engine' ) ) {
 			$exclude = isset( $row_kw[ $id ] ) ? $row_kw[ $id ] : '';
 			ASY_Keyphrase_Engine::save_related_keyphrases( $id, $related, $exclude );
+			$related = bsm_clean_keyphrase_list( $related );
 			update_post_meta( $id, '_asy_or_keyphrases', implode( ', ', $related ) );
 			// Report back only what was actually kept (focus/dupes removed).
 			$saved   = get_post_meta( $id, '_yoast_wpseo_focuskeywords', true );
@@ -2540,6 +2596,7 @@ function bsm_update_fields( int $post_id, string $keyphrase, string $metadesc, s
 	if ( ! current_user_can( 'edit_post', $post_id ) ) {
 		return;
 	}
+	$keyphrase = bsm_clean_keyphrase( $keyphrase );
 	if ( '' !== $keyphrase ) {
 		update_post_meta( $post_id, BSM_META_KW, $keyphrase );
 	}
@@ -2644,10 +2701,20 @@ function bsm_resolve_tab(): string {
 	if ( ! in_array( $tab, $valid, true ) ) {
 		$tab = 'health';
 	}
-	if ( in_array( $tab, array( 'auto', 'reports', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+	if (
+		in_array( $tab, array( 'auto', 'reports', 'settings' ), true ) &&
+		! current_user_can( 'manage_options' ) &&
+		! ( 'reports' === $tab && bsm_is_focus_view() )
+	) {
 		$tab = 'health';
 	}
 	return $tab;
+}
+
+function bsm_is_focus_view(): bool {
+	// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only route selection.
+	$view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : '';
+	return 'focus' === $view && current_user_can( 'edit_posts' );
 }
 
 /**
@@ -2659,7 +2726,7 @@ function bsm_view_params( string $tab ): array {
 		'health'   => array( 'audit_post', 'htype', 'hpaged' ),
 		'bulk'     => array( 'bkm_type', 'kw_status', 'desc_status', 'post_status', 's', 'paged' ),
 		'focus'    => array( 'fstrat', 'ff' ),
-		'reports'  => array( 'view' ),
+		'reports'  => array( 'view', 'fstrat', 'ff' ),
 		'settings' => array( 'pane' ),
 		'auto'     => array(),
 	);
@@ -2696,7 +2763,12 @@ function bsm_remember_tab(): void {
 		if ( ! in_array( $last, array( 'health', 'auto', 'bulk', 'focus', 'reports', 'settings' ), true ) ) {
 			return;
 		}
-		if ( in_array( $last, array( 'auto', 'reports', 'settings' ), true ) && ! current_user_can( 'manage_options' ) ) {
+		$last_focus = 'reports' === $last && 'focus' === sanitize_key( $view['view'] ?? '' );
+		if (
+			in_array( $last, array( 'auto', 'reports', 'settings' ), true ) &&
+			! current_user_can( 'manage_options' ) &&
+			! $last_focus
+		) {
 			return;
 		}
 		$args = array(
@@ -2744,17 +2816,21 @@ function bsm_render_tabs( string $active ): void {
 	if ( current_user_can( 'manage_options' ) ) {
 		$tabs['auto'] = 'Auto SEO Manager';
 	}
-	$tabs['bulk']  = 'Bulk Editor';
-	$tabs['focus'] = 'Focus';
+	$tabs['bulk'] = 'Bulk Editor';
 	if ( current_user_can( 'manage_options' ) ) {
 		$tabs['reports']  = 'Reports';
 		$tabs['settings'] = 'Settings';
+	} else {
+		$tabs['reports'] = 'Reports';
 	}
 	?>
 	<div class="bsm-tabs">
 		<?php
 		foreach ( $tabs as $slug => $label ) :
 			$url = add_query_arg( 'tab', $slug, $base );
+			if ( 'reports' === $slug && ! current_user_can( 'manage_options' ) ) {
+				$url = add_query_arg( 'view', 'focus', $url );
+			}
 			?>
 			<a href="<?php echo esc_url( $url ); ?>"
 				class="bsm-tab<?php echo $active === $slug ? ' bsm-tab-active' : ''; ?>">
@@ -2829,6 +2905,7 @@ function bsm_enqueue_assets( $hook ): void {
 				'ajax_url'     => admin_url( 'admin-ajax.php' ),
 				'nonce'        => wp_create_nonce( 'bsm_report_scan' ),
 				'snapshot'     => BSM_Reports::payload( BSM_Reports::snapshot() ),
+				'history'      => BSM_Reports::history_payload(),
 				'tasks'        => BSM_Tasks::state(),
 				'tasks_url'    => add_query_arg(
 					array(
@@ -2866,7 +2943,8 @@ function bsm_enqueue_assets( $hook ): void {
 	// Focus tab renders the full SEO Health detail, so it needs the same
 	// stylesheet + behaviours (inline editor, alt generation) plus its own
 	// top-controls styling. The strategy toggle and Skip are plain links.
-	if ( 'focus' === $bsm_tab ) {
+	if ( 'focus' === $bsm_tab || ( 'reports' === $bsm_tab && bsm_is_focus_view() ) ) {
+		wp_enqueue_style( 'bsm-reports', ASY_PLUGIN_URL . 'assets/reports.css', array(), BSM_VERSION );
 		wp_enqueue_style( 'bsm-health', ASY_PLUGIN_URL . 'assets/health.css', array(), BSM_VERSION );
 		wp_enqueue_style( 'bsm-focus', ASY_PLUGIN_URL . 'assets/focus.css', array( 'bsm-health' ), BSM_VERSION );
 		wp_enqueue_script( 'bsm-health', ASY_PLUGIN_URL . 'assets/health.js', array(), BSM_VERSION, true );
@@ -3125,6 +3203,9 @@ function bsm_render_page(): void {
 		BSM_Health::render();
 		return; }
 	if ( 'focus' === $tab ) {
+		BSM_Health::render_focus();
+		return; }
+	if ( 'reports' === $tab && bsm_is_focus_view() ) {
 		BSM_Health::render_focus();
 		return; }
 	if ( 'reports' === $tab && current_user_can( 'manage_options' ) ) {

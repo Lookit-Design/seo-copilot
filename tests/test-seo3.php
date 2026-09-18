@@ -296,7 +296,7 @@ class Test_Lookit_SEO_Copilot_SEO3 extends WP_UnitTestCase {
 	public function test_reports_route_and_assets_are_admin_only_and_versioned(): void {
 		$_GET['tab'] = 'reports';
 		$this->assertSame( 'reports', bsm_resolve_tab() );
-		$this->assertSame( array( 'view' ), bsm_view_params( 'reports' ) );
+		$this->assertSame( array( 'view', 'fstrat', 'ff' ), bsm_view_params( 'reports' ) );
 		bsm_enqueue_assets( 'toplevel_page_lookit-bulk-seo' );
 		$this->assertSame( BSM_VERSION, wp_styles()->registered['bsm-reports']->ver );
 		$this->assertSame( BSM_VERSION, wp_scripts()->registered['bsm-reports']->ver );
@@ -306,11 +306,12 @@ class Test_Lookit_SEO_Copilot_SEO3 extends WP_UnitTestCase {
 		unset( $_GET['tab'] );
 	}
 
-	public function test_reports_do_not_expose_features_after_seo4(): void {
+	public function test_reports_expose_seo5_without_links(): void {
 		$files  = file_get_contents( dirname( __DIR__ ) . '/assets/reports.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
 		$files .= file_get_contents( dirname( __DIR__ ) . '/includes/class-bsm-reports.php' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
-		$this->assertStringNotContainsString( 'Trends', $files );
-		$this->assertStringNotContainsString( 'Content type filtering', $files );
+		$this->assertStringContainsString( 'Trends', $files );
+		$this->assertStringContainsString( 'Content included', $files );
 		$this->assertStringNotContainsString( 'Links report', $files );
+		$this->assertStringNotContainsString( 'bsm_links_', $files );
 	}
 }

@@ -90,6 +90,21 @@
 #bsm-wrap .bsm-rep-item.is-done span{text-decoration:line-through;color:#8a94a6}
 #bsm-wrap .bsm-rep-more{margin:10px 14px}
 #bsm-wrap .bsm-rep-capnote{display:block;margin:10px 14px;color:#8a94a6;font-size:calc(12px * var(--bsm-fs, 1))}
+#bsm-wrap .bsm-rep-typebar{padding:14px 30px;border-bottom:1px solid #e3e8ef;background:#f9fafc}
+#bsm-wrap .bsm-rep-typehead{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:9px}
+#bsm-wrap .bsm-rep-typelbl{font-size:calc(11px * var(--bsm-fs, 1));letter-spacing:.14em;text-transform:uppercase;font-weight:600;color:#4e5a6e}
+#bsm-wrap .bsm-rep-typeacts{display:flex;gap:6px;margin-left:auto}
+#bsm-wrap .bsm-rep-typebtn{border:1px solid #cfd6e0;background:#fff;color:#4e5a6e;border-radius:6px;padding:4px 9px;cursor:pointer}
+#bsm-wrap .bsm-rep-typechips{display:flex;gap:7px;flex-wrap:wrap}
+#bsm-wrap .bsm-rep-chip{display:flex;align-items:center;gap:6px;border:1px solid #dce1e8;border-radius:999px;padding:5px 10px;background:#fff;cursor:pointer}
+#bsm-wrap .bsm-rep-chip.on{border-color:#028673;background:#f2fbf9;color:#016155}
+#bsm-wrap .bsm-rep-chip input{margin:0}
+#bsm-wrap .bsm-rep-chip .c{color:#8a94a6;font-size:calc(11px * var(--bsm-fs, 1))}
+#bsm-wrap .bsm-rep-trendscore{display:flex;align-items:baseline;gap:11px;margin:8px 0 14px}
+#bsm-wrap .bsm-rep-trendn{font-size:calc(46px * var(--bsm-fs, 1));font-weight:600;line-height:1;color:#028673}
+#bsm-wrap .bsm-rep-trendpill{display:inline-block;font-size:calc(11px * var(--bsm-fs, 1));font-weight:600;padding:2px 8px;border-radius:999px;background:#f0f3f8;color:#4e5a6e}
+#bsm-wrap .bsm-rep-trendpill.up{background:#e4f4f0;color:#016155}
+#bsm-wrap .bsm-rep-trendpill.down{background:#fbeceb;color:#b3453f}
 
 @media (max-width:960px){
 	#bsm-wrap .bsm-rep-hero,#bsm-wrap .bsm-rep-2{grid-template-columns:1fr}
@@ -104,6 +119,7 @@
 	#adminmenumain,#adminmenuwrap,#adminmenuback,#wpadminbar,#wpfooter,#screen-meta,#screen-meta-links,
 	.notice,.update-nag,.wp-header-end,.bsm-tabs,.bsm-topbar,
 	#bsm-wrap .bsm-rep-nav,#bsm-wrap .bsm-rep-actions,#bsm-wrap .bsm-rep-progress{display:none!important}
+	#bsm-wrap .bsm-rep-typebar{display:none!important}
 	#wpcontent,#wpbody,#wpbody-content,.wrap,#bsm-wrap{margin:0!important;padding:0!important;width:auto!important;float:none!important}
 	#bsm-wrap .bsm-rep-wrap{border:0;border-radius:0;overflow:visible}
 	#bsm-wrap .bsm-rep-grid{padding:0 0 12px;gap:12px;display:block}

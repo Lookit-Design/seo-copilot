@@ -22,6 +22,7 @@ $asy_uninstall_options = array(
 	'bsm_landing_tab',
 	'bsm_report_snapshot',
 	'bsm_report_scan_state',
+	'bsm_report_history',
 );
 
 if ( is_multisite() ) {
