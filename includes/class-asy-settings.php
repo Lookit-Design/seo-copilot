@@ -15,7 +15,6 @@ class ASY_Settings {
 		add_action( 'admin_init', array( $instance, 'register_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( $instance, 'enqueue_assets' ) );
 		add_action( 'wp_ajax_asy_save_templates', array( $instance, 'ajax_save_templates' ) );
-		add_action( 'wp_ajax_asy_save_api_key', array( $instance, 'ajax_save_api_key' ) );
 	}
 
 	// ── Menu ──────────────────────────────────────────────────────────────────
@@ -42,27 +41,6 @@ class ASY_Settings {
 				'sanitize_callback' => array( $this, 'sanitize_templates' ),
 			)
 		);
-		$this->maybe_disable_autoload();
-	}
-
-	public function maybe_disable_autoload() {
-		$alloptions = wp_load_alloptions();
-		if ( ! isset( $alloptions['asy_openrouter_api_key'] ) ) {
-			return;
-		}
-		$value = get_option( 'asy_openrouter_api_key' );
-		delete_option( 'asy_openrouter_api_key' );
-		add_option( 'asy_openrouter_api_key', $value, '', false );
-	}
-
-	public function store_openrouter_api_key( $key ) {
-		$key = trim( sanitize_text_field( $key ) );
-		if ( '' === $key ) {
-			return (string) get_option( 'asy_openrouter_api_key', '' );
-		}
-		delete_option( 'asy_openrouter_api_key' );
-		add_option( 'asy_openrouter_api_key', $key, '', false );
-		return $key;
 	}
 
 	/**
@@ -122,12 +100,10 @@ class ASY_Settings {
 				'lookit-bsm-admin',
 				'ASY',
 				array(
-					'ajax_url'    => admin_url( 'admin-ajax.php' ),
-					'nonce'       => wp_create_nonce( 'asy_nonce' ),
-					'saved'       => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
-					'key_saved'   => __( 'API key saved!', 'bulk-keyphrase-manager' ),
-					'error'       => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
-					'has_api_key' => ! empty( get_option( 'asy_openrouter_api_key', '' ) ),
+					'ajax_url' => admin_url( 'admin-ajax.php' ),
+					'nonce'    => wp_create_nonce( 'asy_nonce' ),
+					'saved'    => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
+					'error'    => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
 				)
 			);
 			return;
@@ -202,21 +178,6 @@ class ASY_Settings {
 				'stored'   => is_array( $stored ) ? $stored : array(),
 			)
 		);
-	}
-
-	// ── AJAX: save API key separately (keeps it out of POST logs) ────────────
-
-	public function ajax_save_api_key() {
-		check_ajax_referer( 'asy_nonce', 'nonce' );
-		if ( ! current_user_can( 'manage_options' ) ) {
-			wp_send_json_error( 'Permission denied.' ); }
-
-		$key    = isset( $_POST['api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) : '';
-		$stored = $this->store_openrouter_api_key( $key );
-		if ( '' === $stored ) {
-			wp_send_json_error( 'Empty key.' ); }
-
-		wp_send_json_success();
 	}
 
 	// ── Render ────────────────────────────────────────────────────────────────

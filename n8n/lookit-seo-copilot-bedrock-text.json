@@ -1,0 +1,236 @@
+{
+  "name": "Lookit SEO Copilot - Bedrock Text",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lookit-seo-copilot",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "bsm-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "lookit-seo-copilot"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\nconst headers = input.headers || {};\nconst expected = String($env.BSM_SEO_COPILOT_TOKEN || '');\nconst received = String(headers.authorization || headers.Authorization || '');\nconst wanted = `Bearer ${expected}`;\nfunction safeEqual(left, right) {\n  let mismatch = left.length ^ right.length;\n  const length = Math.max(left.length, right.length);\n  for (let index = 0; index < length; index++) {\n    mismatch |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);\n  }\n  return mismatch === 0;\n}\nconst authorised = expected.length >= 32 && safeEqual(received, wanted);\nreturn [{ json: { ...input, authorised } }];"
+      },
+      "id": "bsm-auth",
+      "name": "Validate auth",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [224, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bsm-authorised",
+              "leftValue": "={{ $json.authorised }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bsm-authorised",
+      "name": "Authorised?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [448, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\nconst body = input.body;\nconst tasks = ['keyphrase', 'metadesc', 'title', 'subheadings', 'outline', 'content'];\nconst valid = !!body && typeof body === 'object' && !Array.isArray(body) && JSON.stringify(body).length <= 32768 && tasks.includes(String(body.task || 'keyphrase').toLowerCase());\nreturn [{ json: { ...input, valid } }];"
+      },
+      "id": "bsm-validate",
+      "name": "Validate input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [672, -80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bsm-valid",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bsm-valid",
+      "name": "Valid input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [896, -80]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || {};\nconst text = (value, limit) => String(value || '').trim().slice(0, limit);\nconst task = text(body.task || 'keyphrase', 20).toLowerCase();\nconst title = text(body.title, 300);\nconst excerpt = text(body.excerpt, 4000);\nconst category = text(body.category, 200);\nconst type = text(body.type || 'post', 100);\nconst keyphrase = text(body.keyphrase, 200);\nconst target = text(body.target, 300);\nconst count = Math.max(1, Math.min(6, Number.parseInt(body.count, 10) || 3));\nconst words = Math.max(100, Math.min(2000, Number.parseInt(body.words, 10) || 600));\nconst site = body.site && typeof body.site === 'object' ? body.site : {};\nconst siteName = text(site.name, 200);\nconst previous = body.previous && typeof body.previous === 'object' && !Array.isArray(body.previous) ? body.previous : {};\nconst variation = Math.max(0, Math.min(1000, Number.parseInt(body.variation, 10) || 0));\nconst seed = text(body.seed, 100);\nconst context = `Site: ${siteName}\\nContent type: ${type}\\n${category ? `Category: ${category}\\n` : ''}Title: ${title}\\n${excerpt ? `Excerpt: ${excerpt}` : ''}`;\nconst prior = task === 'keyphrase' ? [previous.keyphrase, previous.related] : [previous[task]];\nconst seen = prior.map(value => text(value, 500)).filter(Boolean);\nconst avoid = variation > 1 && seen.length ? `\\nProduce a meaningfully different result from: ${seen.join(' | ')}${seed ? `\\nVariation token: ${seed}` : ''}` : '';\nlet prompt;\nlet maxTokens;\nif (task === 'metadesc') {\n  maxTokens = 120;\n  prompt = `Write one active-voice SEO meta description of 120 to 140 characters, never over 155.${keyphrase ? ` Naturally include \"${keyphrase}\".` : ''} Return only plain text.${avoid}\\n\\n${context}`;\n} else if (task === 'title') {\n  maxTokens = 60;\n  prompt = `Write one clear SEO title, 50 to 60 characters, with the main topic first.${keyphrase ? ` Naturally include \"${keyphrase}\".` : ''} Return only plain text.${avoid}\\n\\n${context}`;\n} else if (task === 'subheadings') {\n  maxTokens = 220;\n  prompt = `Return exactly ${count} distinct H2 subheadings, each 3 to 8 words, as a JSON array of strings only.${keyphrase ? ` Include \"${keyphrase}\" or a close variant in at least one.` : ''}\\n\\n${context}`;\n} else if (task === 'outline') {\n  maxTokens = 320;\n  prompt = `Return exactly ${count} distinct content sections to add, each 4 to 12 words, as a JSON array of strings only.${keyphrase ? ` Keep them centered on \"${keyphrase}\".` : ''}\\n\\n${context}`;\n} else if (task === 'content') {\n  maxTokens = Math.min(4000, Math.round(words * 2.2) + 200);\n  prompt = target\n    ? `Write approximately ${words} words of plain body copy for only this section: \"${target}\". Do not output the heading.${keyphrase ? ` Use \"${keyphrase}\" naturally.` : ''}\\n\\n${context}`\n    : `Write approximately ${words} words of helpful plain body copy. No page title, metadata, HTML, or markdown.${keyphrase ? ` Center it on \"${keyphrase}\" naturally.` : ''}\\n\\n${context}`;\n} else {\n  maxTokens = 200;\n  prompt = `Return exactly ${count} distinct SEO keyphrases of 2 to 4 words as a JSON array of strings only. Put the best primary phrase first.${avoid}\\n\\n${context}`;\n}\nconst temperature = variation > 1 ? Math.min(1, 0.55 + variation * 0.1) : 0.3;\nreturn [{ json: { task, requestBody: { messages: [{ role: 'user', content: [{ text: prompt }] }], inferenceConfig: { maxTokens, temperature } } } }];"
+      },
+      "id": "bsm-prepare",
+      "name": "Prepare input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, -160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://bedrock-runtime.us-east-1.amazonaws.com/model/us.amazon.nova-lite-v1:0/converse",
+        "authentication": "predefinedCredentialType",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {},
+        "nodeCredentialType": "aws"
+      },
+      "id": "bsm-bedrock",
+      "name": "Bedrock Converse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, -160]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json || {};\nconst content = body.output && body.output.message && Array.isArray(body.output.message.content) ? body.output.message.content : [];\nconst part = content.find(item => item && typeof item.text === 'string');\nreturn [{ json: { text: part ? part.text.trim().slice(0, 20000) : '' } }];"
+      },
+      "id": "bsm-parse",
+      "name": "Parse response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1568, -160]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "bsm-respond",
+      "name": "Respond success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1792, -160]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ error: 'Invalid or missing endpoint token.' }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "bsm-unauthorised",
+      "name": "Respond unauthorised",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [672, 160]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ error: 'Invalid or oversized request.' }) }}",
+        "options": {
+          "responseCode": 400,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "bsm-invalid",
+      "name": "Respond invalid",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 80]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Validate auth", "type": "main", "index": 0}]]
+    },
+    "Validate auth": {
+      "main": [[{"node": "Authorised?", "type": "main", "index": 0}]]
+    },
+    "Authorised?": {
+      "main": [
+        [{"node": "Validate input", "type": "main", "index": 0}],
+        [{"node": "Respond unauthorised", "type": "main", "index": 0}]
+      ]
+    },
+    "Validate input": {
+      "main": [[{"node": "Valid input?", "type": "main", "index": 0}]]
+    },
+    "Valid input?": {
+      "main": [
+        [{"node": "Prepare input", "type": "main", "index": 0}],
+        [{"node": "Respond invalid", "type": "main", "index": 0}]
+      ]
+    },
+    "Prepare input": {
+      "main": [[{"node": "Bedrock Converse", "type": "main", "index": 0}]]
+    },
+    "Bedrock Converse": {
+      "main": [[{"node": "Parse response", "type": "main", "index": 0}]]
+    },
+    "Parse response": {
+      "main": [[{"node": "Respond success", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "00000000-0000-4000-8000-000000000581",
+  "meta": {},
+  "nodeGroups": [],
+  "tags": []
+}

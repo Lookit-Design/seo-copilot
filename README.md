@@ -52,17 +52,24 @@ Auto SEO Manager rules live on the same plugin screen.
 * **Bulk Editor** — edit keyphrases and meta descriptions across post types, including JetEngine CPTs, with filters, templates, and bulk fill.
 * **Auto SEO Manager** — per-post-type rules that fill the focus keyphrase, meta description, related keyphrases, and SEO title when a post is published.
 * **SEO Health** — on-page checks (keyphrase, titles and meta, content, alt text, internal links) with a score, drill-down, and a priority-fix list.
+* **Reports** — site-wide scoring, impact simulation, per-user tasks, audit trends, and the Focus workflow.
 * **Lock SEO Fields** — a per-post metabox so Auto SEO does not overwrite a page you have already tuned.
 
 Related keyphrases can use content extraction plus the free [Datamuse](https://www.datamuse.com/api/) API. Optional AI fills go through the Lookit platform webhook to Amazon Bedrock; no AWS keys are stored in WordPress.
 
 ## Security and Privacy
 
-* Stored OpenRouter keys from older versions are **not autoloaded** and are **removed on uninstall**.
-* The plugin does not echo leftover API keys into admin screens.
+* Text and vision webhook tokens are stored with autoload disabled and are never rendered back into admin screens.
+* The text workflow requires a bearer token in production. Setup instructions are in [`n8n/`](n8n/).
 * On uninstall, plugin options are deleted from the database.
 
-Datamuse is called only when related-keyphrase generation is enabled. The Lookit webhook is called only on an explicit AI fill. See Datamuse's [API notes](https://www.datamuse.com/api/).
+Datamuse is called only when related-keyphrase generation is enabled. The Lookit webhook is called by explicit AI actions and enabled Auto SEO rules. See Datamuse's [API notes](https://www.datamuse.com/api/).
+
+## Dormant Links engine
+
+The internal-link scanner and inserter are included for future use, but `BSM_LINKS_UI` is fixed to `false` in version 3.58.1. No Links navigation, view, assets, localized nonces, or AJAX actions are active.
+
+The engine supports classic WordPress content and bounded traversal of Elementor text widgets. Elementor limitations from the source release remain: an open Elementor editor can overwrite an external insertion on its next save, and Elementor's `post_content` mirror remains stale until Elementor next saves the page, so Yoast may not count the new link immediately. Headings, buttons, templates, shortcodes, global widgets, unsupported widget fields, and over-limit or malformed trees are not modified. Links configured through structured Elementor controls such as button or image URLs are not counted by the dormant scanner.
 
 ## Development
 
@@ -94,6 +101,7 @@ composer phpcs    # check coding standards
 composer phpcbf   # auto-fix what can be fixed
 composer compat   # check PHP 7.4+ compatibility
 composer lint     # php -l syntax check on all files
+node --test 'n8n/tests/*.test.mjs'
 ```
 
 ### Continuous Integration

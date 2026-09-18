@@ -5,39 +5,72 @@
 
 class Test_Lookit_SEO_Copilot_Settings extends WP_UnitTestCase {
 
-	const SECRET = 'sk-openrouter-test-key';
+	const SECRET = 'lookit-text-webhook-test-token';
 
 	public function tear_down() {
-		delete_option( 'asy_openrouter_api_key' );
+		delete_option( 'bsm_ai_webhook_token' );
 		parent::tear_down();
 	}
 
-	public function test_store_blank_keeps_existing_key() {
-		$settings = new ASY_Settings();
-		$settings->store_openrouter_api_key( self::SECRET );
+	public function test_text_webhook_header_uses_saved_bearer_token() {
+		add_option( 'bsm_ai_webhook_token', self::SECRET, '', false );
 
-		$this->assertSame( self::SECRET, $settings->store_openrouter_api_key( '' ) );
-		$this->assertSame( self::SECRET, get_option( 'asy_openrouter_api_key' ) );
+		$this->assertSame( 'Bearer ' . self::SECRET, bsm_ai_webhook_headers()['Authorization'] );
 	}
 
-	public function test_store_saves_trimmed_key_without_autoload() {
-		$settings = new ASY_Settings();
-		$settings->store_openrouter_api_key( '  ' . self::SECRET . '  ' );
-
-		$this->assertSame( self::SECRET, get_option( 'asy_openrouter_api_key' ) );
-		$this->assertArrayNotHasKey( 'asy_openrouter_api_key', wp_load_alloptions() );
+	public function test_text_webhook_token_is_not_autoloaded() {
+		add_option( 'bsm_ai_webhook_token', self::SECRET, '', false );
+		$this->assertArrayNotHasKey( 'bsm_ai_webhook_token', wp_load_alloptions() );
 	}
 
-	public function test_maybe_disable_autoload_removes_key_from_autoload() {
-		delete_option( 'asy_openrouter_api_key' );
-		add_option( 'asy_openrouter_api_key', self::SECRET, '', 'yes' );
+	public function test_secret_migration_disables_autoload() {
+		add_option( 'bsm_ai_webhook_token', self::SECRET, '', 'yes' );
 
-		$this->assertArrayHasKey( 'asy_openrouter_api_key', wp_load_alloptions() );
+		bsm_disable_secret_autoload();
+		$this->assertArrayNotHasKey( 'bsm_ai_webhook_token', wp_load_alloptions() );
+		$this->assertSame( self::SECRET, get_option( 'bsm_ai_webhook_token' ) );
+	}
 
-		$settings = new ASY_Settings();
-		$settings->maybe_disable_autoload();
+	public function test_blank_text_webhook_token_preserves_saved_secret() {
+		add_option( 'bsm_ai_webhook_token', self::SECRET, '', false );
 
-		$this->assertArrayNotHasKey( 'asy_openrouter_api_key', wp_load_alloptions() );
-		$this->assertSame( self::SECRET, get_option( 'asy_openrouter_api_key' ) );
+		$url = bsm_store_ai_settings( 'https://platform.example.test/text', '' );
+
+		$this->assertSame( 'https://platform.example.test/text', $url );
+		$this->assertSame( self::SECRET, get_option( 'bsm_ai_webhook_token' ) );
+		$this->assertArrayNotHasKey( 'bsm_ai_webhook_token', wp_load_alloptions() );
+	}
+
+	public function test_text_generation_sends_bearer_header_without_exposing_token_in_payload() {
+		$post_id = self::factory()->post->create(
+			array(
+				'post_status' => 'publish',
+				'post_title'  => 'Webhook test',
+			)
+		);
+		update_option( 'bsm_ai_webhook_url', 'https://platform.example.test/text' );
+		add_option( 'bsm_ai_webhook_token', self::SECRET, '', false );
+		$request = array();
+		add_filter(
+			'pre_http_request',
+			static function ( $response, $args ) use ( &$request ) {
+				$request = $args;
+				return array(
+					'headers'  => array(),
+					'body'     => wp_json_encode( array( 'text' => 'Generated description.' ) ),
+					'response' => array( 'code' => 200 ),
+					'cookies'  => array(),
+				);
+			},
+			10,
+			2
+		);
+
+		$result = bsm_ai_call_webhook( 'metadesc', get_post( $post_id ) );
+		$this->assertSame( 'Generated description.', $result );
+		$this->assertSame( 'Bearer ' . self::SECRET, $request['headers']['Authorization'] );
+		$this->assertStringNotContainsString( self::SECRET, $request['body'] );
+		remove_all_filters( 'pre_http_request' );
+		delete_option( 'bsm_ai_webhook_url' );
 	}
 }

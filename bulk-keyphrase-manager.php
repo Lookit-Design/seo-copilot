@@ -2,8 +2,8 @@
 /**
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
- * Description:  Manage Yoast SEO Focus Keyphrases and Meta Descriptions for all post types from one screen — plus an Auto SEO Manager that auto-fills Yoast fields on publish (content extraction + Datamuse, no AI key needed).
- * Version:      3.55.1
+ * Description:  Manage Yoast SEO fields, automate publishing defaults, audit site content, and generate reviewable suggestions.
+ * Version:      3.58.1
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,7 +14,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.55.1' );
+define( 'BSM_VERSION', '3.58.1' );
+define( 'BSM_LINKS_UI', false );
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -70,20 +71,22 @@ define( 'ASY_OPTION_KEY', 'asy_post_type_templates' );
 
 function bsm_disable_secret_autoload(): void {
 	$alloptions = wp_load_alloptions();
-	if ( ! isset( $alloptions['bsm_vision_token'] ) ) {
-		return;
+	foreach ( array( 'bsm_ai_webhook_token', 'bsm_vision_token' ) as $option ) {
+		if ( ! isset( $alloptions[ $option ] ) ) {
+			continue;
+		}
+		$value = get_option( $option );
+		delete_option( $option );
+		add_option( $option, $value, '', false );
 	}
-	$token = get_option( 'bsm_vision_token' );
-	delete_option( 'bsm_vision_token' );
-	add_option( 'bsm_vision_token', $token, '', false );
 }
 
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-keyphrase-engine.php';
-require_once ASY_PLUGIN_DIR . 'includes/class-asy-openrouter.php'; // kept for back-compat
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-settings.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-asy-processor.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-health.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-reports.php';
+require_once ASY_PLUGIN_DIR . 'includes/class-bsm-links.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-tasks.php';
 
 // The processor (publish hooks, reprocess AJAX, lock metabox) runs as-is.
@@ -98,7 +101,6 @@ add_action(
 		$asy = new ASY_Settings();
 		add_action( 'admin_init', array( $asy, 'register_settings' ) );
 		add_action( 'wp_ajax_asy_save_templates', array( $asy, 'ajax_save_templates' ) );
-		add_action( 'wp_ajax_asy_save_api_key', array( $asy, 'ajax_save_api_key' ) );
 		$GLOBALS['bsm_asy_settings'] = $asy;
 	}
 );
@@ -695,6 +697,7 @@ function bsm_render_settings() {
 
 		<?php
 		$bsm_ai_webhook     = get_option( 'bsm_ai_webhook_url', '' );
+		$bsm_ai_hastok      = '' !== trim( (string) get_option( 'bsm_ai_webhook_token', '' ) );
 		$bsm_vision_webhook = get_option( 'bsm_vision_webhook_url', '' );
 		$bsm_vision_hastok  = '' !== trim( (string) get_option( 'bsm_vision_token', '' ) );
 		$bsm_alt_prompt     = (string) get_option(
@@ -784,7 +787,13 @@ function bsm_render_settings() {
 							<input type="url" id="bsm-ai-webhook" value="<?php echo esc_url( $bsm_ai_webhook ); ?>"
 									placeholder="Paste your platform endpoint URL"
 									class="bsm-set-mono">
-							<span class="bsm-set-pill"><span class="bsm-set-dot"></span>No API key required</span>
+							<span class="bsm-set-pill"><span class="bsm-set-dot"></span>Bearer protected</span>
+						</div>
+						<label class="bsm-set-label" for="bsm-ai-token">Text endpoint bearer token</label>
+						<div class="bsm-set-inline">
+							<input type="password" id="bsm-ai-token" value=""
+									placeholder="<?php echo esc_attr( $bsm_ai_hastok ? 'Saved, leave blank to keep' : 'Required in production' ); ?>"
+									autocomplete="new-password" class="bsm-set-mono">
 						</div>
 						<p class="bsm-set-hint">
 							Used by the <strong>AI — Nova Lite</strong> fill options in the Bulk Editor, the
@@ -1175,12 +1184,14 @@ function bsm_render_settings() {
 				fd.append('action','bsm_save_ai_webhook');
 				fd.append('nonce', NONCE);
 				fd.append('url', input ? input.value : '');
+				var token = document.getElementById('bsm-ai-token');
+				fd.append('token', token ? token.value : '');
 				if (st){ st.style.display='inline'; st.style.color='#1a8fd1'; st.textContent='Saving…'; }
 				fetch(AJAXURL,{method:'POST',body:fd,credentials:'same-origin'})
 					.then(function(r){ return r.json(); })
 					.then(function(resp){
 						if (!st) return;
-						if (resp && resp.success){ st.style.color='#1da462'; st.textContent='✓ Saved'; }
+						if (resp && resp.success){ st.style.color='#1da462'; st.textContent='✓ Saved'; if(token){ token.value=''; } }
 						else { st.style.color='#d63638'; st.textContent='⚠ '+((resp&&resp.data)?resp.data:'Save failed'); }
 						setTimeout(function(){ st.style.display='none'; }, 2500);
 					})
@@ -1692,9 +1703,30 @@ function bsm_ajax_save_ai_webhook() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_send_json_error( 'Permission denied.' );
 	}
-	$url = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ), array( 'http', 'https' ) ) : '';
-	update_option( 'bsm_ai_webhook_url', $url );
+	$url   = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ), array( 'http', 'https' ) ) : '';
+	$token = isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : '';
+	$url   = bsm_store_ai_settings( $url, $token );
 	wp_send_json_success( array( 'url' => $url ) );
+}
+
+function bsm_store_ai_settings( $url, $token ): string {
+	$url = esc_url_raw( $url, array( 'http', 'https' ) );
+	update_option( 'bsm_ai_webhook_url', $url );
+	$token = sanitize_text_field( $token );
+	if ( '' !== $token ) {
+		delete_option( 'bsm_ai_webhook_token' );
+		add_option( 'bsm_ai_webhook_token', $token, '', false );
+	}
+	return $url;
+}
+
+function bsm_ai_webhook_headers(): array {
+	$headers = array( 'Content-Type' => 'application/json' );
+	$token   = trim( (string) get_option( 'bsm_ai_webhook_token', '' ) );
+	if ( '' !== $token ) {
+		$headers['Authorization'] = 'Bearer ' . $token;
+	}
+	return $headers;
 }
 
 /**
@@ -2034,7 +2066,7 @@ function bsm_ajax_ai_fill() {
 			$webhook,
 			array(
 				'timeout' => 45,
-				'headers' => array( 'Content-Type' => 'application/json' ),
+				'headers' => bsm_ai_webhook_headers(),
 				'body'    => wp_json_encode( $payload ),
 			)
 		);
@@ -2172,7 +2204,7 @@ function bsm_ai_call_webhook( $task, WP_Post $post, $count = 3, $keyphrase = '',
 		$webhook,
 		array(
 			'timeout' => 45,
-			'headers' => array( 'Content-Type' => 'application/json' ),
+			'headers' => bsm_ai_webhook_headers(),
 			'body'    => wp_json_encode( $payload ),
 		)
 	);
@@ -3128,12 +3160,10 @@ function bsm_enqueue_assets( $hook ): void {
 			'lookit-bsm-admin',
 			'ASY',
 			array(
-				'ajax_url'    => admin_url( 'admin-ajax.php' ),
-				'nonce'       => wp_create_nonce( 'asy_nonce' ),
-				'saved'       => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
-				'key_saved'   => __( 'API key saved!', 'bulk-keyphrase-manager' ),
-				'error'       => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
-				'has_api_key' => ! empty( get_option( 'asy_openrouter_api_key', '' ) ),
+				'ajax_url' => admin_url( 'admin-ajax.php' ),
+				'nonce'    => wp_create_nonce( 'asy_nonce' ),
+				'saved'    => __( 'Settings saved!', 'bulk-keyphrase-manager' ),
+				'error'    => __( 'Save failed. Please try again.', 'bulk-keyphrase-manager' ),
 			)
 		);
 	}
