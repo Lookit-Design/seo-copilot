@@ -3,7 +3,7 @@
  * Plugin Name:  Lookit SEO Copilot
  * Plugin URI:   https://lookitai.com
  * Description:  Manage Yoast SEO fields, automate publishing defaults, audit site content, and generate reviewable suggestions.
- * Version:      3.58.1
+ * Version:      3.62.1
  * Author:       Lookit Design
  * Author URI:   https://lookitai.com
  * License:      GPL-2.0+
@@ -14,8 +14,13 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'BSM_VERSION', '3.58.1' );
-define( 'BSM_LINKS_UI', false );
+define( 'BSM_VERSION', '3.62.1' );
+// Reports → Links. A site can switch the whole feature off from wp-config.php
+// with define( 'BSM_LINKS_UI', false ); nothing it saved is touched, the view
+// and its endpoints are simply not registered.
+if ( ! defined( 'BSM_LINKS_UI' ) ) {
+	define( 'BSM_LINKS_UI', true );
+}
 define( 'BSM_NONCE', 'bsm_save_nonce' );
 define( 'BSM_AJAX_NONCE', 'bsm_ajax_nonce' );
 define( 'BSM_META_KW', '_yoast_wpseo_focuskw' );
@@ -53,6 +58,16 @@ add_action( 'wp_ajax_bsm_task_items', array( 'BSM_Tasks', 'ajax_items' ) );
 add_action( 'wp_ajax_bsm_task_set', array( 'BSM_Tasks', 'ajax_set' ) );
 add_action( 'wp_ajax_bsm_task_toggle', array( 'BSM_Tasks', 'ajax_toggle' ) );
 add_action( 'wp_ajax_bsm_task_reset', array( 'BSM_Tasks', 'ajax_reset' ) );
+if ( BSM_LINKS_UI ) {
+	add_action( 'wp_ajax_bsm_links_scan', array( 'BSM_Links', 'ajax_scan' ) );
+	add_action( 'wp_ajax_bsm_links_insert', array( 'BSM_Links', 'ajax_insert' ) );
+	add_action( 'wp_ajax_bsm_links_ignore', array( 'BSM_Links', 'ajax_ignore' ) );
+	// Link rules: a nonce per action and manage_options on all of them, since a
+	// rule writes links across every page on the site.
+	add_action( 'wp_ajax_bsm_rule_save', array( 'BSM_Link_Rules', 'ajax_save' ) );
+	add_action( 'wp_ajax_bsm_rule_update', array( 'BSM_Link_Rules', 'ajax_update' ) );
+	add_action( 'wp_ajax_bsm_rule_targets', array( 'BSM_Link_Rules', 'ajax_targets' ) );
+}
 // Focus tab: pre-render routing (pin the focused post in the URL, handle skips)
 // and the Settings skip-list manager.
 add_action( 'admin_init', 'bsm_remember_tab', 5 );
@@ -87,6 +102,7 @@ require_once ASY_PLUGIN_DIR . 'includes/class-asy-processor.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-health.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-reports.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-links.php';
+require_once ASY_PLUGIN_DIR . 'includes/class-bsm-link-rules.php';
 require_once ASY_PLUGIN_DIR . 'includes/class-bsm-tasks.php';
 
 // The processor (publish hooks, reprocess AJAX, lock metabox) runs as-is.
@@ -1742,9 +1758,9 @@ function bsm_ajax_save_vision_webhook() {
 	if ( ! current_user_can( 'manage_options' ) ) {
 		wp_send_json_error( 'Permission denied.' );
 	}
-	$url    = isset( $_POST['url'] ) ? wp_unslash( $_POST['url'] ) : '';
-	$token  = isset( $_POST['token'] ) ? wp_unslash( $_POST['token'] ) : '';
-	$prompt = isset( $_POST['prompt'] ) ? wp_unslash( $_POST['prompt'] ) : '';
+	$url    = isset( $_POST['url'] ) ? esc_url_raw( wp_unslash( $_POST['url'] ), array( 'http', 'https' ) ) : '';
+	$token  = isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : '';
+	$prompt = isset( $_POST['prompt'] ) ? sanitize_textarea_field( wp_unslash( $_POST['prompt'] ) ) : '';
 	$url    = bsm_store_vision_settings( $url, $token, $prompt );
 	wp_send_json_success( array( 'url' => $url ) );
 }
@@ -2956,6 +2972,26 @@ function bsm_enqueue_assets( $hook ): void {
 				'reset_nonce'  => wp_create_nonce( 'bsm_task_reset' ),
 			)
 		);
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view selection.
+		$bsm_view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : '';
+		if ( BSM_LINKS_UI && 'links' === $bsm_view ) {
+			wp_enqueue_style( 'bsm-links', ASY_PLUGIN_URL . 'assets/links.css', array( 'bsm-reports' ), BSM_VERSION );
+			wp_enqueue_script( 'bsm-links', ASY_PLUGIN_URL . 'assets/links.js', array(), BSM_VERSION, true );
+			wp_localize_script(
+				'bsm-links',
+				'BSM_LINKS',
+				array(
+					'ajax_url'    => admin_url( 'admin-ajax.php' ),
+					'links'       => BSM_Links::payload(),
+					'rules'       => BSM_Link_Rules::payload(),
+					'scan_nonce'  => wp_create_nonce( 'bsm_links_scan' ),
+					'link_nonce'  => wp_create_nonce( 'bsm_links_insert' ),
+					'rule_nonce'  => wp_create_nonce( 'bsm_rule_save' ),
+					'rule_update' => wp_create_nonce( 'bsm_rule_update' ),
+				)
+			);
+		}
 	}
 
 	// SEO Health tab: dedicated stylesheet + behaviours (enqueued, no inline).

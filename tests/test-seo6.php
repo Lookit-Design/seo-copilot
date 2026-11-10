@@ -25,7 +25,7 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 	}
 
 	private function clear_links(): void {
-		foreach ( array( BSM_Links::OPTION, BSM_Links::IGNORED, BSM_Links::STATE_OPTION, BSM_Links::LEGACY_ACC, BSM_Links::LEGACY_MAP ) as $option ) {
+		foreach ( array( BSM_Links::OPTION, BSM_Links::IGNORED, BSM_Links::STATE_OPTION, BSM_Links::LEGACY_ACC, BSM_Links::LEGACY_MAP, BSM_Link_Rules::OPTION, BSM_Link_Rules::DISMISSED, BSM_Link_Rules::PLACED ) as $option ) {
 			delete_option( $option );
 		}
 	}
@@ -54,12 +54,16 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 		return $result['snapshot'];
 	}
 
-	public function test_dormant_flag_registers_no_links_surface_or_secrets(): void {
-		$this->assertFalse( BSM_LINKS_UI );
-		$this->assertFalse( has_action( 'wp_ajax_bsm_links_scan' ) );
-		$this->assertFalse( has_action( 'wp_ajax_bsm_links_insert' ) );
-		$this->assertFalse( has_action( 'wp_ajax_bsm_links_ignore' ) );
-		$this->assertArrayNotHasKey( 'links', BSM_Reports::views() );
+	public function test_links_flag_registers_admin_surface_without_secrets(): void {
+		$this->assertTrue( BSM_LINKS_UI );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_links_scan' ) );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_links_insert' ) );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_links_ignore' ) );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_rule_save' ) );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_rule_update' ) );
+		$this->assertNotFalse( has_action( 'wp_ajax_bsm_rule_targets' ) );
+		$this->assertFalse( has_action( 'wp_ajax_nopriv_bsm_links_insert' ) );
+		$this->assertArrayHasKey( 'links', BSM_Reports::views() );
 
 		$_GET = array(
 			'page' => 'lookit-bulk-seo',
@@ -68,9 +72,17 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 		);
 		set_current_screen( 'dashboard' );
 		bsm_enqueue_assets( 'toplevel_page_lookit-bulk-seo' );
-		$data = wp_scripts()->get_data( 'bsm-reports', 'data' );
-		$this->assertStringNotContainsString( 'links_nonce', (string) $data );
-		$this->assertStringNotContainsString( 'link_nonce', (string) $data );
+		$this->assertTrue( wp_script_is( 'bsm-links', 'enqueued' ) );
+		$data = (string) wp_scripts()->get_data( 'bsm-links', 'data' );
+		$this->assertStringContainsString( 'link_nonce', $data );
+		$this->assertStringNotContainsString( 'fingerprint', $data );
+		$this->assertStringNotContainsString( 'bsm_ai_webhook_token', $data );
+
+		$_GET['view'] = 'report';
+		wp_dequeue_script( 'bsm-links' );
+		bsm_enqueue_assets( 'toplevel_page_lookit-bulk-seo' );
+		$this->assertFalse( wp_script_is( 'bsm-links', 'enqueued' ) );
+		$_GET = array();
 		$this->assertFileDoesNotExist( dirname( __DIR__ ) . '/includes/class-asy-openrouter.php' );
 		$this->assertFileDoesNotExist( dirname( __DIR__ ) . '/includes/class-bsm-export.php' );
 		$this->assertFalse( has_action( 'wp_ajax_asy_save_api_key' ) );
@@ -529,6 +541,192 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 		);
 
 		$this->assertCount( BSM_Links::PER_SOURCE, $source_opportunities );
+	}
+
+	private function rule( array $rule ): string {
+		$rule += array(
+			'id'  => 'r' . strtolower( wp_generate_password( 8, false, false ) ),
+			'dst' => 0,
+			'url' => '',
+			'max' => 2,
+			'on'  => true,
+		);
+		$rules   = (array) get_option( BSM_Link_Rules::OPTION, array() );
+		$rules[] = $rule;
+		update_option( BSM_Link_Rules::OPTION, $rules, false );
+		return $rule['id'];
+	}
+
+	public function test_rule_phrase_is_offered_even_when_repeated_and_links_first_occurrence(): void {
+		$target = self::factory()->post->create(
+			array(
+				'post_status' => 'publish',
+				'post_type'   => 'page',
+				'post_title'  => 'Rule target',
+			)
+		);
+		$rule   = $this->rule(
+			array(
+				'dst'     => $target,
+				'phrases' => array( 'repeated rule phrase' ),
+			)
+		);
+		$source = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'The repeated rule phrase once, and the repeated rule phrase twice.',
+			)
+		);
+		$snapshot = $this->finish_scan();
+		$matches  = array_values(
+			array_filter(
+				$snapshot['opps'],
+				static fn( array $opportunity ): bool => $source === $opportunity['src']
+			)
+		);
+		$this->assertCount( 1, $matches );
+		$this->assertSame( 'rule', $matches[0]['via'] );
+		$this->assertSame( $rule, $matches[0]['rule'] );
+
+		$result = BSM_Links::insert_link( $source, $target, 'repeated rule phrase' );
+		$this->assertNotWPError( $result );
+		$stored = get_post( $source )->post_content;
+		$this->assertSame( 1, substr_count( $stored, '<a ' ) );
+		$this->assertStringStartsWith( 'The <a href="' . get_permalink( $target ) . '">repeated rule phrase</a> once', $stored );
+		$placed = BSM_Link_Rules::placed();
+		$this->assertSame( $source, $placed[0]['src'] );
+		$this->assertSame( 'repeated rule phrase', $placed[0]['phrase'] );
+	}
+
+	public function test_external_rule_inserts_stored_url_and_skips_pages_already_linking(): void {
+		$rule    = $this->rule(
+			array(
+				'url'     => 'https://partner.example.org/research/',
+				'label'   => 'Partner',
+				'phrases' => array( 'partner research centre' ),
+			)
+		);
+		$source  = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'Read the partner research centre findings.',
+			)
+		);
+		$already = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'The partner research centre is <a href="http://www.partner.example.org/research">here</a>.',
+			)
+		);
+		$snapshot = $this->finish_scan();
+		$sources  = array_column(
+			array_filter(
+				$snapshot['opps'],
+				static fn( array $opportunity ): bool => $rule === $opportunity['ext']
+			),
+			'src'
+		);
+		$this->assertContains( $source, $sources );
+		$this->assertNotContains( $already, $sources );
+
+		$this->assertSame( 'invalid_opportunity', BSM_Links::insert_link( $source, 5, 'partner research centre', $rule )->get_error_code() );
+		$result = BSM_Links::insert_link( $source, 0, 'partner research centre', $rule );
+		$this->assertNotWPError( $result );
+		$this->assertStringContainsString( '<a href="https://partner.example.org/research/">partner research centre</a>', get_post( $source )->post_content );
+		$this->assertSame( 'Partner', BSM_Link_Rules::placed()[0]['to'] );
+	}
+
+	public function test_external_insert_fails_once_rule_is_deleted(): void {
+		$rule   = $this->rule(
+			array(
+				'url'     => 'https://gone.example.org/',
+				'phrases' => array( 'deleted external rule' ),
+			)
+		);
+		$source = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'A deleted external rule mention.',
+			)
+		);
+		$this->finish_scan();
+		delete_option( BSM_Link_Rules::OPTION );
+		$this->assertSame( 'stale_rule', BSM_Links::insert_link( $source, 0, 'deleted external rule', $rule )->get_error_code() );
+		$this->assertStringNotContainsString( '<a ', get_post( $source )->post_content );
+	}
+
+	public function test_ignore_keys_external_rows_on_rule_id(): void {
+		$rule   = $this->rule(
+			array(
+				'url'     => 'https://ignored.example.org/',
+				'phrases' => array( 'ignored external phrase' ),
+			)
+		);
+		$source = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'An ignored external phrase here.',
+			)
+		);
+		$this->finish_scan();
+		$this->assertTrue( BSM_Links::ignore( $source, 0, $rule ) );
+		$this->assertContains( $source . ':' . $rule, BSM_Links::ignored() );
+		$keys = array_map( array( 'BSM_Links', 'opp_key' ), BSM_Links::payload()['opps'] );
+		$this->assertNotContains( $source . ':' . $rule, $keys );
+		$this->assertArrayNotHasKey( 'fingerprint', BSM_Links::payload()['opps'][0] ?? array() );
+	}
+
+	public function test_rule_matches_do_not_use_the_automatic_per_page_budget(): void {
+		$phrases = array();
+		for ( $index = 0; $index < BSM_Links::PER_SOURCE; ++$index ) {
+			$phrase    = 'budget target phrase ' . self::number_word( $index );
+			$phrases[] = $phrase;
+			$this->target( $phrase, 'Budget ' . $index );
+		}
+		$this->rule(
+			array(
+				'url'     => 'https://budget.example.org/',
+				'phrases' => array( 'separate rule budget' ),
+			)
+		);
+		$source   = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => implode( '. ', $phrases ) . '. And a separate rule budget.',
+			)
+		);
+		$snapshot = $this->finish_scan();
+		$rows     = array_filter(
+			$snapshot['opps'],
+			static fn( array $opportunity ): bool => $source === $opportunity['src']
+		);
+		$this->assertCount( BSM_Links::PER_SOURCE + 1, $rows );
+		$this->assertSame( 'rule', $snapshot['opps'][0]['via'] );
+	}
+
+	public function test_paused_rules_and_weak_phrases_are_not_matched(): void {
+		$this->rule(
+			array(
+				'url'     => 'https://paused.example.org/',
+				'phrases' => array( 'paused rule phrase' ),
+				'on'      => false,
+			)
+		);
+		$this->assertSame( array(), BSM_Link_Rules::map_entries() );
+		$this->assertSame( '', BSM_Link_Rules::clean_phrase( 'contact' ) );
+		$this->assertSame( '', BSM_Link_Rules::clean_phrase( 'Click here' ) );
+		$this->assertSame( 'contact us', BSM_Link_Rules::clean_phrase( ' Contact us. ' ) );
+	}
+
+	public function test_health_reports_incoming_links_without_changing_score(): void {
+		$orphan = $this->target( 'orphan health phrase', 'Orphan health page' );
+		$before = BSM_Health::audit_post( get_post( $orphan ) );
+		$this->finish_scan();
+		$after  = BSM_Health::audit_post( get_post( $orphan ) );
+		$labels = array_column( $after['groups']['Links'], 'label' );
+		$this->assertContains( 'Internal links in', $labels );
+		$this->assertNotContains( 'Internal links in', $after['issues'] );
+		$this->assertSame( $before['score'], $after['score'] );
 	}
 
 	private static function number_word( int $number ): string {

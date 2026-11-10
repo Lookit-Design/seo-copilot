@@ -63,13 +63,17 @@ class BSM_Reports {
 	}
 
 	public static function views(): array {
-		return array(
+		$views = array(
 			'report'    => 'Website Report',
 			'simulator' => 'Impact Simulator',
 			'tasks'     => 'Task Manager',
 			'trends'    => 'Trends',
 			'focus'     => 'Focus',
 		);
+		if ( defined( 'BSM_LINKS_UI' ) && BSM_LINKS_UI ) {
+			$views['links'] = 'Links';
+		}
+		return $views;
 	}
 
 	public static function nav( string $view, array $snapshot = array(), bool $run = true ): void {
@@ -126,7 +130,8 @@ class BSM_Reports {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view selection.
 		$view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : 'report';
-		if ( ! in_array( $view, array( 'report', 'simulator', 'tasks', 'trends' ), true ) ) {
+		$links = defined( 'BSM_LINKS_UI' ) && BSM_LINKS_UI;
+		if ( ! in_array( $view, array( 'report', 'simulator', 'tasks', 'trends' ), true ) && ! ( $links && 'links' === $view ) ) {
 			$view = 'report';
 		}
 
@@ -151,6 +156,9 @@ class BSM_Reports {
 				<div id="bsm-rep-sim" class="bsm-rep-view<?php echo 'simulator' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
 				<div id="bsm-rep-tasks" class="bsm-rep-view<?php echo 'tasks' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
 				<div id="bsm-rep-trends" class="bsm-rep-view<?php echo 'trends' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
+				<?php if ( $links ) : ?>
+					<div id="bsm-rep-links" class="bsm-rep-view<?php echo 'links' === $view ? '' : ' bsm-rep-hidden'; ?>"></div>
+				<?php endif; ?>
 			</div>
 		</div>
 		<?php
@@ -341,6 +349,11 @@ class BSM_Reports {
 		$earned    = 0.0;
 		foreach ( $audit['groups'] as $group ) {
 			foreach ( $group as $check ) {
+				// Not-scored checks are per-page diagnostics only; counting them
+				// would add a task whose projected gain could never be realised.
+				if ( ! empty( $check['noscore'] ) ) {
+					continue;
+				}
 				$checks[] = $check;
 				$earned  += self::status_value( $check['status'] );
 			}

@@ -535,6 +535,46 @@ class BSM_Health {
 	 *
 	 * @return array{score:int,groups:array,issues:array}
 	 */
+	/** Incoming-link counts from the last link scan, or null without one. */
+	private static function links_incoming(): ?array {
+		if ( ! defined( 'BSM_LINKS_UI' ) || ! BSM_LINKS_UI || ! class_exists( 'BSM_Links' ) ) {
+			return null;
+		}
+		return BSM_Links::incoming();
+	}
+
+	/**
+	 * Up to $limit unlinked mentions the last link scan found on one page.
+	 * Indexed by source page once per snapshot, since a full audit asks for
+	 * every page in turn.
+	 */
+	private static function link_opps( int $post_id, int $limit = 5 ): array {
+		static $index = array();
+		static $key   = '';
+		if ( ! defined( 'BSM_LINKS_UI' ) || ! BSM_LINKS_UI || ! class_exists( 'BSM_Links' ) ) {
+			return array();
+		}
+		$snapshot = BSM_Links::snapshot();
+		$current  = get_current_user_id() . ':' . (int) ( $snapshot['generated'] ?? 0 ) . ':' . count( BSM_Links::ignored() );
+		if ( $current !== $key ) {
+			$key   = $current;
+			$index = array();
+			foreach ( (array) ( BSM_Links::payload()['opps'] ?? array() ) as $opportunity ) {
+				$source = (int) ( $opportunity['src'] ?? 0 );
+				if ( count( $index[ $source ] ?? array() ) >= $limit ) {
+					continue;
+				}
+				$index[ $source ][] = array(
+					'phrase' => (string) ( $opportunity['phrase'] ?? '' ),
+					'to'     => (string) ( $opportunity['to'] ?? '' ),
+					'to_url' => (string) ( $opportunity['to_url'] ?? '' ),
+					'via'    => (string) ( $opportunity['via'] ?? 'auto' ),
+				);
+			}
+		}
+		return $index[ $post_id ] ?? array();
+	}
+
 	public static function audit_post( WP_Post $post, array $dupe_ids = array() ): array {
 		$content = (string) $post->post_content;
 		$plain   = trim( wp_strip_all_tags( strip_shortcodes( $content ) ) );
@@ -680,8 +720,31 @@ class BSM_Health {
 			? self::chk( 'good', 'Internal links out', $int_links . ' internal link(s) from this page.' )
 			: self::chk( 'fail', 'Internal links out', 'No internal links — link to related pages.' );
 		$link_check['links'] = $int_list;
-		$lg[]                = $link_check;
-		$groups['Links']     = $lg;
+		// Unlinked mentions the last link scan found on this page, so the
+		// finding sits next to where the link should go.
+		$opps = self::link_opps( (int) $post->ID );
+		if ( ! empty( $opps ) ) {
+			$link_check['opps'] = $opps;
+		}
+		$lg[] = $link_check;
+
+		// Incoming links, read from the link scan's snapshot: the one thing a
+		// per-page audit cannot work out on its own. Absent a scan the check is
+		// left out. Not scored, so existing scores and Trends do not move.
+		$incoming = self::links_incoming();
+		if ( null !== $incoming ) {
+			$in = (int) ( $incoming[ (int) $post->ID ] ?? 0 );
+			if ( 0 === $in ) {
+				$in_check = self::chk( 'fail', 'Internal links in', 'Nothing on this site links to this page.' );
+			} elseif ( $in < 3 ) {
+				$in_check = self::chk( 'warn', 'Internal links in', $in . ' page(s) link here — thinly linked.' );
+			} else {
+				$in_check = self::chk( 'good', 'Internal links in', $in . ' page(s) link here.' );
+			}
+			$in_check['noscore'] = true;
+			$lg[]                = $in_check;
+		}
+		$groups['Links'] = $lg;
 
 		// ---- Score + flat issue list ----
 		$sum    = 0;
@@ -689,6 +752,9 @@ class BSM_Health {
 		$issues = array();
 		foreach ( $groups as $group => $checks ) {
 			foreach ( $checks as $c ) {
+				if ( ! empty( $c['noscore'] ) ) {
+					continue;
+				}
 				$sum += ( 'good' === $c['status'] ) ? 1 : ( ( 'warn' === $c['status'] ) ? 0.5 : 0 );
 				++$n;
 				if ( 'good' !== $c['status'] ) {
@@ -898,14 +964,14 @@ class BSM_Health {
 					'numberposts'   => 1,
 					'fields'        => 'ids',
 					'no_found_rows' => true,
-					// Lookup by stored filename; unavoidable meta query, cached per request.
+					// phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- Lookup by stored filename; unavoidable, cached per request.
 					'meta_query'    => array(
 						array(
 							'key'     => '_wp_attached_file',
 							'value'   => $file,
 							'compare' => 'LIKE',
 						),
-					), // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
+					),
 				)
 			);
 			if ( ! empty( $found ) ) {
@@ -1537,7 +1603,10 @@ class BSM_Health {
 				'fail' => 0,
 			);
 			foreach ( $checks as $c ) {
-				++$counts[ $c['status'] ]; }
+				if ( empty( $c['noscore'] ) ) {
+					++$counts[ $c['status'] ];
+				}
+			}
 			echo '<div class="bsm-h-grp"><div class="gh"><span class="gn">' . esc_html( $group ) . '</span>';
 			echo '<span class="gc">' . (int) $counts['good'] . ' pass · ' . (int) $counts['warn'] . ' warn · ' . (int) $counts['fail'] . ' fail</span></div>';
 			foreach ( $checks as $c ) {
@@ -1547,7 +1616,11 @@ class BSM_Health {
 				$det_cls   = 'cd' . ( $alt_panel ? ' bsm-h-alt-detail' : '' );
 				$check_id  = class_exists( 'BSM_Reports' ) ? 'bsm-h-chk-' . BSM_Reports::check_slug( (string) $c['label'] ) : '';
 				echo '<div class="chk"' . ( $check_id ? ' id="' . esc_attr( $check_id ) . '"' : '' ) . ( $alt_panel ? ' data-bsm-alt="1"' : '' ) . '><div class="' . esc_attr( $ico_cls ) . '">' . esc_html( $icon ) . '</div><div>';
-				echo '<div class="ct">' . esc_html( $c['label'] ) . '</div>';
+				echo '<div class="ct">' . esc_html( $c['label'] );
+				if ( ! empty( $c['noscore'] ) ) {
+					echo ' <span class="bsm-h-noscore">' . esc_html__( 'not scored', 'bulk-keyphrase-manager' ) . '</span>';
+				}
+				echo '</div>';
 				echo '<div class="' . esc_attr( $det_cls ) . '">' . esc_html( $c['detail'] ) . '</div>';
 				if ( ! $alt_panel && ! empty( $c['files'] ) ) {
 					echo '<div class="bsm-h-files">';
@@ -1579,6 +1652,35 @@ class BSM_Health {
 					} else {
 						echo '<div class="bsm-h-bridge">→ <b>Lookit Media Master</b> can batch-fix these (AI alt text &amp; WebP).</div>';
 					}
+				}
+				if ( ! empty( $c['opps'] ) ) {
+					$opp_n = count( $c['opps'] );
+					echo '<details class="bsm-h-links bsm-h-opps"><summary>' . esc_html(
+						sprintf(
+							/* translators: %d: number of suggested internal links. */
+							_n( 'Show %d link you could add', 'Show %d links you could add', $opp_n, 'bulk-keyphrase-manager' ),
+							$opp_n
+						)
+					) . '</summary><ul>';
+					foreach ( $c['opps'] as $opp ) {
+						echo '<li><span class="bsm-h-oppph">' . esc_html( $opp['phrase'] ) . '</span><span class="bsm-h-opparr">→</span>';
+						echo '<a href="' . esc_url( $opp['to_url'] ) . '" target="_blank" rel="noopener">' . esc_html( $opp['to'] ) . '</a>';
+						if ( 'rule' === $opp['via'] ) {
+							echo '<span class="bsm-h-oppvia">' . esc_html__( 'from a rule', 'bulk-keyphrase-manager' ) . '</span>';
+						}
+						echo '</li>';
+					}
+					echo '</ul>';
+					$links_url = add_query_arg(
+						array(
+							'page' => 'lookit-bulk-seo',
+							'tab'  => 'reports',
+							'view' => 'links',
+						),
+						admin_url( 'admin.php' )
+					);
+					echo '<div class="bsm-h-bridge"><a href="' . esc_url( $links_url ) . '">→ Insert these under <b>Reports → Links</b></a></div>';
+					echo '</details>';
 				}
 				if ( ! empty( $c['links'] ) ) {
 					echo '<details class="bsm-h-links"><summary>Show ' . count( $c['links'] ) . ' link' . ( count( $c['links'] ) === 1 ? '' : 's' ) . '</summary><ul>';
