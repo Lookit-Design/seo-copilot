@@ -810,12 +810,15 @@ class BSM_Links {
 		if ( ! is_array( $parts ) ) {
 			return array();
 		}
-		$matches   = array();
-		$in_anchor = false;
-		$skip      = 0;
-		$position  = 0;
-		$quoted    = preg_quote( $phrase, '/' );
+		$matches       = array();
+		$in_anchor     = false;
+		$skip          = 0;
+		$position      = 0;
+		$byte_position = 0;
+		$quoted        = preg_quote( $phrase, '/' );
 		foreach ( $parts as $part ) {
+			$byte_start     = $byte_position;
+			$byte_position += strlen( $part );
 			if ( '' === $part ) {
 				continue;
 			}
@@ -837,6 +840,7 @@ class BSM_Links {
 					$matches[] = array(
 						'phrase' => $found_match[0],
 						'start'  => $position + mb_strlen( $prefix ),
+						'offset' => $byte_start + $found_match[1],
 					);
 				}
 			}
@@ -851,38 +855,14 @@ class BSM_Links {
 	 * the first (rule rows, whose content is pinned by the scan fingerprint).
 	 */
 	public static function link_first( string $content, string $phrase, string $url, bool $first_of_many = false ): ?string {
-		$count = count( self::linkable_matches( $content, $phrase ) );
+		$matches = self::linkable_matches( $content, $phrase );
+		$count   = count( $matches );
 		if ( '' === self::href_url( $url ) || 0 === $count || ( ! $first_of_many && 1 !== $count ) ) {
 			return null;
 		}
-		$parts     = preg_split( '/(<!--.*?-->|<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>)/s', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
-		$in_anchor = false;
-		$skip      = 0;
-		foreach ( $parts as $index => $part ) {
-			if ( '' === $part ) {
-				continue;
-			}
-			if ( '<' === $part[0] ) {
-				if ( preg_match( '#^<a[\s>]#i', $part ) ) {
-					$in_anchor = true;
-				} elseif ( preg_match( '#^</a>#i', $part ) ) {
-					$in_anchor = false;
-				} elseif ( preg_match( '#^<(h[1-6]|script|style|textarea|pre|code|template|noscript)[\s>]#i', $part ) ) {
-					++$skip;
-				} elseif ( preg_match( '#^</(h[1-6]|script|style|textarea|pre|code|template|noscript)>#i', $part ) ) {
-					$skip = max( 0, $skip - 1 );
-				}
-				continue;
-			}
-			if ( $in_anchor || 0 !== $skip || ! preg_match( '/(?<![\pL\pN])' . preg_quote( $phrase, '/' ) . '(?![\pL\pN])/iu', $part, $match, PREG_OFFSET_CAPTURE ) ) {
-				continue;
-			}
-			$byte_offset     = $match[0][1];
-			$written         = $match[0][0];
-			$parts[ $index ] = substr( $part, 0, $byte_offset ) . '<a href="' . esc_url( $url ) . '">' . $written . '</a>' . substr( $part, $byte_offset + strlen( $written ) );
-			return implode( '', $parts );
-		}
-		return null;
+		$byte_offset = $matches[0]['offset'];
+		$written     = $matches[0]['phrase'];
+		return substr( $content, 0, $byte_offset ) . '<a href="' . esc_url( $url ) . '">' . $written . '</a>' . substr( $content, $byte_offset + strlen( $written ) );
 	}
 
 	private static function opportunity( int $source_id, int $target_id, string $phrase, string $ext = '' ) {
