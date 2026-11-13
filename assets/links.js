@@ -456,8 +456,20 @@
 		scope.querySelectorAll( '.bsm-rep-ign' ).forEach( function ( button ) {
 			button.addEventListener( 'click', function () {
 				var opp = links.opps[ Number( button.dataset.i ) ];
-				settle( button.closest( 'tr' ), 'Ignored' );
-				post( 'bsm_links_ignore', BSM_LINKS.link_nonce, { src: opp.src, dst: opp.dst, ext: opp.ext || '' } ).catch( function () {} );
+				button.disabled = true;
+				post( 'bsm_links_ignore', BSM_LINKS.link_nonce, { src: opp.src, dst: opp.dst, ext: opp.ext || '' } ).then( function ( result ) {
+					if ( ! result || ! result.success ) {
+						throw new Error( errText( result, 'Could not ignore this link. Please try again.' ) );
+					}
+					settle( button.closest( 'tr' ), 'Ignored' );
+				} ).catch( function ( error ) {
+					button.disabled = false;
+					var message = document.createElement( 'div' );
+					message.className = 'bsm-rep-linkerr';
+					message.setAttribute( 'role', 'alert' );
+					message.textContent = error.message || 'Could not ignore this link. Please try again.';
+					button.parentNode.appendChild( message );
+				} );
 			} );
 		} );
 	}

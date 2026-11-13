@@ -99,11 +99,16 @@ class BSM_Links {
 		);
 	}
 
-	/** Comparable form of an external address: no scheme, no www, no trailing slash. */
+	/** Compare external hosts case-insensitively while preserving path and query case. */
 	public static function norm_ext( string $url ): string {
-		$url = mb_strtolower( trim( html_entity_decode( $url, ENT_QUOTES, 'UTF-8' ) ) );
-		$url = (string) preg_replace( '#^https?://(www\.)?#', '', $url );
-		return rtrim( $url, '/' );
+		$url = trim( html_entity_decode( $url, ENT_QUOTES, 'UTF-8' ) );
+		return (string) preg_replace_callback(
+			'~^(?:https?:)?//([^/\?#]+)~i',
+			static function ( array $parts ): string {
+				return (string) preg_replace( '/^www\./i', '', strtolower( $parts[1] ) );
+			},
+			rtrim( $url, '/' )
+		);
 	}
 
 	/** Ignore-list key for an opportunity: external rules key on the rule ID. */
@@ -342,7 +347,7 @@ class BSM_Links {
 
 	private static function fold_source( array &$aggregate, WP_Post $post, array $map, array $ignored ): void {
 		$source = self::source_document( $post->ID );
-		if ( is_wp_error( $source ) || '' === trim( $source['html'] ) ) {
+		if ( is_wp_error( $source ) ) {
 			return;
 		}
 		$aggregate['pages'][ $post->ID ] = array(
@@ -357,6 +362,7 @@ class BSM_Links {
 		}
 
 		$candidates = array();
+		$mentioned  = array();
 		foreach ( $map as $target ) {
 			$ext     = (string) ( $target['ext'] ?? '' );
 			$is_rule = 'rule' === ( $target['src'] ?? '' );
@@ -369,7 +375,8 @@ class BSM_Links {
 			}
 			// Counted whether or not a row is offered: a page that already links
 			// to the destination still proves the wording is used.
-			if ( '' === $ext ) {
+			if ( '' === $ext && ! isset( $mentioned[ $target['id'] ] ) ) {
+				$mentioned[ $target['id'] ]             = true;
 				$aggregate['mentions'][ $target['id'] ] = 1 + (int) ( $aggregate['mentions'][ $target['id'] ] ?? 0 );
 			}
 			$already = '' === $ext
@@ -495,7 +502,11 @@ class BSM_Links {
 			if ( '' === $url ) {
 				// Remember external addresses so an external rule is not offered
 				// on a page that already links there.
-				$external = self::href_url( trim( html_entity_decode( $href, ENT_QUOTES, 'UTF-8' ) ) );
+				$external = trim( html_entity_decode( $href, ENT_QUOTES, 'UTF-8' ) );
+				if ( 0 === strpos( $external, '//' ) ) {
+					$external = 'https:' . $external;
+				}
+				$external = self::href_url( $external );
 				if ( '' !== $external ) {
 					$result['ext'][ self::norm_ext( $external ) ] = true;
 				}
@@ -563,7 +574,9 @@ class BSM_Links {
 		if ( '' === $href || '#' === $href[0] ) {
 			return '';
 		}
-		if ( '/' === $href[0] ) {
+		if ( 0 === strpos( $href, '//' ) ) {
+			$href = (string) wp_parse_url( home_url(), PHP_URL_SCHEME ) . ':' . $href;
+		} elseif ( '/' === $href[0] ) {
 			$href = home_url( $href );
 		}
 		// Host first: safe_url() resolves DNS for any host other than this
@@ -793,7 +806,7 @@ class BSM_Links {
 	}
 
 	private static function linkable_matches( string $content, string $phrase ): array {
-		$parts = preg_split( '/(<[^>]+>)/', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
+		$parts = preg_split( '/(<!--.*?-->|<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>)/s', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
 		if ( ! is_array( $parts ) ) {
 			return array();
 		}
@@ -811,9 +824,9 @@ class BSM_Links {
 					$in_anchor = true;
 				} elseif ( preg_match( '#^</a>#i', $part ) ) {
 					$in_anchor = false;
-				} elseif ( preg_match( '#^<(h[1-6]|script|style)[\s>]#i', $part ) ) {
+				} elseif ( preg_match( '#^<(h[1-6]|script|style|textarea|pre|code|template|noscript)[\s>]#i', $part ) ) {
 					++$skip;
-				} elseif ( preg_match( '#^</(h[1-6]|script|style)>#i', $part ) ) {
+				} elseif ( preg_match( '#^</(h[1-6]|script|style|textarea|pre|code|template|noscript)>#i', $part ) ) {
 					$skip = max( 0, $skip - 1 );
 				}
 				continue;
@@ -842,7 +855,7 @@ class BSM_Links {
 		if ( '' === self::href_url( $url ) || 0 === $count || ( ! $first_of_many && 1 !== $count ) ) {
 			return null;
 		}
-		$parts     = preg_split( '/(<[^>]+>)/', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
+		$parts     = preg_split( '/(<!--.*?-->|<(?:"[^"]*"|\'[^\']*\'|[^\'">])*>)/s', $content, -1, PREG_SPLIT_DELIM_CAPTURE );
 		$in_anchor = false;
 		$skip      = 0;
 		foreach ( $parts as $index => $part ) {
@@ -854,9 +867,9 @@ class BSM_Links {
 					$in_anchor = true;
 				} elseif ( preg_match( '#^</a>#i', $part ) ) {
 					$in_anchor = false;
-				} elseif ( preg_match( '#^<(h[1-6]|script|style)[\s>]#i', $part ) ) {
+				} elseif ( preg_match( '#^<(h[1-6]|script|style|textarea|pre|code|template|noscript)[\s>]#i', $part ) ) {
 					++$skip;
-				} elseif ( preg_match( '#^</(h[1-6]|script|style)>#i', $part ) ) {
+				} elseif ( preg_match( '#^</(h[1-6]|script|style|textarea|pre|code|template|noscript)>#i', $part ) ) {
 					$skip = max( 0, $skip - 1 );
 				}
 				continue;
@@ -921,6 +934,9 @@ class BSM_Links {
 			$url                 = self::href_url( $url );
 		} else {
 			$url = self::safe_url( get_permalink( $target ) );
+		}
+		if ( in_array( $source_id . ':' . ( '' !== $ext ? $ext : $target_id ), self::ignored(), true ) ) {
+			return new WP_Error( 'ignored_opportunity', __( 'This link opportunity was ignored.', 'bulk-keyphrase-manager' ) );
 		}
 		$opportunity = self::opportunity( $source_id, $target_id, $phrase, $ext );
 		$document    = self::source_document( $source_id );

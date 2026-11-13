@@ -113,7 +113,7 @@ class BSM_Link_Rules {
 	public static function clean_phrase( string $phrase ): string {
 		$phrase = html_entity_decode( wp_strip_all_tags( $phrase ), ENT_QUOTES, 'UTF-8' );
 		$phrase = mb_strtolower( trim( (string) preg_replace( '/\s+/u', ' ', $phrase ) ) );
-		$phrase = trim( $phrase, " \t\n\r\0\x0B.,;:!?\"'()[]–—-" );
+		$phrase = (string) preg_replace( '/^[\s\x{0000}.,;:!?"\'()\[\]–—-]+|[\s\x{0000}.,;:!?"\'()\[\]–—-]+$/u', '', $phrase );
 		if ( mb_strlen( $phrase ) < 4 || mb_strlen( $phrase ) > 60 ) {
 			return '';
 		}

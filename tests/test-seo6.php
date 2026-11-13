@@ -769,6 +769,87 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 		$this->assertSame( $before['score'], $after['score'] );
 	}
 
+	public function test_rule_phrase_trimming_preserves_unicode_characters(): void {
+		$this->assertSame( 'новый центр', BSM_Link_Rules::clean_phrase( '— Новый центр —' ) );
+		$this->assertSame( 'our services', BSM_Link_Rules::clean_phrase( ' [Our services!] ' ) );
+	}
+
+	public function test_external_url_comparison_preserves_path_and_query_case(): void {
+		$this->assertSame( BSM_Links::norm_ext( 'https://EXAMPLE.org/Research?key=AbC' ), BSM_Links::norm_ext( 'http://www.example.org/Research?key=AbC' ) );
+		$this->assertNotSame( BSM_Links::norm_ext( 'https://example.org/Research' ), BSM_Links::norm_ext( 'https://example.org/research' ) );
+		$this->assertNotSame( BSM_Links::norm_ext( 'https://example.org/?key=AbC' ), BSM_Links::norm_ext( 'https://example.org/?key=abc' ) );
+	}
+
+	public function test_protocol_relative_external_links_are_not_counted_as_internal(): void {
+		$rule     = $this->rule(
+			array(
+				'url'     => 'https://partner.example.org/research',
+				'phrases' => array( 'partner research phrase' ),
+			)
+		);
+		$source   = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'The partner research phrase. <a href="//partner.example.org/research">Research</a>',
+			)
+		);
+		$snapshot = $this->finish_scan();
+		$this->assertSame( array(), $snapshot['broken'] );
+		$this->assertSame( array(), array_values( array_filter( $snapshot['opps'], static fn( array $opp ): bool => $source === $opp['src'] && $rule === $opp['ext'] ) ) );
+	}
+
+	public function test_ignored_opportunities_cannot_be_inserted_from_an_old_tab(): void {
+		$target = $this->target( 'ignored internal phrase' );
+		$source = self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'An ignored internal phrase.',
+			)
+		);
+		$this->finish_scan();
+		$this->assertTrue( BSM_Links::ignore( $source, $target ) );
+		$result = BSM_Links::insert_link( $source, $target, 'ignored internal phrase' );
+		$this->assertWPError( $result );
+		$this->assertSame( 'ignored_opportunity', $result->get_error_code() );
+		$this->assertSame( 'An ignored internal phrase.', get_post( $source )->post_content );
+	}
+
+	public function test_empty_pages_remain_in_orphan_report(): void {
+		$target   = $this->target( 'empty destination phrase' );
+		$snapshot = $this->finish_scan();
+		$this->assertContains( $target, array_column( $snapshot['orphans'], 'id' ) );
+	}
+
+	public function test_rule_mentions_count_distinct_pages_not_matching_phrases(): void {
+		$target = $this->target( 'first destination phrase' );
+		$this->rule(
+			array(
+				'dst'     => $target,
+				'phrases' => array( 'first destination phrase', 'second destination phrase' ),
+			)
+		);
+		self::factory()->post->create(
+			array(
+				'post_status'  => 'publish',
+				'post_content' => 'First destination phrase and second destination phrase.',
+			)
+		);
+		$snapshot = $this->finish_scan();
+		$rows     = array_values( array_filter( $snapshot['cands'], static fn( array $row ): bool => $target === $row['id'] ) );
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 1, $rows[0]['total'] );
+	}
+
+	public function test_link_insertion_skips_comments_code_and_quoted_attributes(): void {
+		$url = 'https://example.org/target/';
+		foreach ( array( 'textarea', 'pre', 'code', 'template', 'noscript' ) as $tag ) {
+			$this->assertNull( BSM_Links::link_first( '<' . $tag . '>example phrase</' . $tag . '>', 'example phrase', $url ) );
+		}
+		$this->assertNull( BSM_Links::link_first( '<!-- a > example phrase -->', 'example phrase', $url ) );
+		$this->assertNull( BSM_Links::link_first( '<div title="a > example phrase">Other text</div>', 'example phrase', $url ) );
+		$this->assertSame( '<!-- a > example phrase --><p><a href="' . $url . '">example phrase</a></p>', BSM_Links::link_first( '<!-- a > example phrase --><p>example phrase</p>', 'example phrase', $url ) );
+	}
+
 	private static function number_word( int $number ): string {
 		return array( 'zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven' )[ $number ];
 	}
