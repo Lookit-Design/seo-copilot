@@ -29,6 +29,9 @@ $asy_uninstall_options = array(
 	'bsm_links_scan_state',
 	'bsm_links_acc_state',
 	'bsm_links_map_state',
+	'bsm_links_rules',
+	'bsm_links_dismissed',
+	'bsm_links_placed',
 );
 
 function asy_uninstall_site_data( array $options ): void {

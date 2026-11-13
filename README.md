@@ -53,6 +53,7 @@ Auto SEO Manager rules live on the same plugin screen.
 * **Auto SEO Manager** — per-post-type rules that fill the focus keyphrase, meta description, related keyphrases, and SEO title when a post is published.
 * **SEO Health** — on-page checks (keyphrase, titles and meta, content, alt text, internal links) with a score, drill-down, and a priority-fix list.
 * **Reports** — site-wide scoring, impact simulation, per-user tasks, audit trends, and the Focus workflow.
+* **Links** — internal and external link rules, reviewed link insertion (classic and Elementor), suggestions, orphan pages, and a placed-links ledger. Disable with `define( 'BSM_LINKS_UI', false );` in `wp-config.php`.
 * **Lock SEO Fields** — a per-post metabox so Auto SEO does not overwrite a page you have already tuned.
 
 Related keyphrases can use content extraction plus the free [Datamuse](https://www.datamuse.com/api/) API. Optional AI fills go through the Lookit platform webhook to Amazon Bedrock; no AWS keys are stored in WordPress.

@@ -129,3 +129,6 @@ assert.deepStrictEqual(
 	calculate.restoreTypes( [ 'post', 'page' ], 'not-json' ),
 	[ 'post', 'page' ]
 );
+
+// Exercise the Links view alongside the existing report UI checks.
+require( './test-links.js' );

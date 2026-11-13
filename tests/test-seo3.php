@@ -306,12 +306,14 @@ class Test_Lookit_SEO_Copilot_SEO3 extends WP_UnitTestCase {
 		unset( $_GET['tab'] );
 	}
 
-	public function test_reports_expose_seo5_without_links(): void {
+	public function test_reports_keep_links_in_their_own_assets(): void {
 		$files  = file_get_contents( dirname( __DIR__ ) . '/assets/reports.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
 		$files .= file_get_contents( dirname( __DIR__ ) . '/includes/class-bsm-reports.php' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
 		$this->assertStringContainsString( 'Trends', $files );
 		$this->assertStringContainsString( 'Content included', $files );
-		$this->assertStringNotContainsString( 'Links report', $files );
 		$this->assertStringNotContainsString( 'bsm_links_', $files );
+		$links = file_get_contents( dirname( __DIR__ ) . '/assets/links.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
+		$this->assertStringContainsString( 'bsm_links_scan', $links );
+		$this->assertStringContainsString( 'bsm_rule_save', $links );
 	}
 }

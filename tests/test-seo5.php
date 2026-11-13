@@ -330,15 +330,17 @@ class Test_Lookit_SEO_Copilot_SEO5 extends WP_UnitTestCase {
 		$_GET = array();
 	}
 
-	public function test_runtime_has_exact_view_order_and_no_links_surface(): void {
+	public function test_runtime_has_exact_view_order_and_gated_links_surface(): void {
 		$main = file_get_contents( dirname( __DIR__ ) . '/bulk-keyphrase-manager.php' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source assertion.
 		$this->assertSame(
-			array( 'Website Report', 'Impact Simulator', 'Task Manager', 'Trends', 'Focus' ),
+			array( 'Website Report', 'Impact Simulator', 'Task Manager', 'Trends', 'Focus', 'Links' ),
 			array_values( BSM_Reports::views() )
 		);
 		$this->assertFileExists( dirname( __DIR__ ) . '/includes/class-bsm-links.php' );
-		$this->assertFalse( BSM_LINKS_UI );
-		$this->assertStringNotContainsString( "add_action( 'wp_ajax_bsm_links_", $main );
+		$this->assertFileExists( dirname( __DIR__ ) . '/includes/class-bsm-link-rules.php' );
+		$this->assertTrue( BSM_LINKS_UI );
+		$this->assertStringContainsString( "if ( ! defined( 'BSM_LINKS_UI' ) ) {", $main );
+		$this->assertStringContainsString( "if ( BSM_LINKS_UI ) {\n\tadd_action( 'wp_ajax_bsm_links_scan'", $main );
 		$this->assertSame( array( 'view', 'fstrat', 'ff' ), bsm_view_params( 'reports' ) );
 		$health_js = file_get_contents( dirname( __DIR__ ) . '/assets/health.js' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local source assertion.
 		$this->assertStringContainsString( "words.dataset.bsmUserSet = '1'", $health_js );

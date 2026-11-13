@@ -4,7 +4,7 @@ Tags: yoast, seo, keyphrase, meta description, bulk edit
 Requires at least: 5.9
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 3.58.1
+Stable tag: 3.62.1
 License: GPL-2.0+
 Author: Lookit Design
 Author URI: https://lookitai.com
@@ -20,6 +20,7 @@ Main views:
 * **Auto SEO Manager** — per-post-type rules that auto-fill the focus keyphrase, meta description, and related keyphrases when a post is published. Uses PHP content extraction + the free Datamuse API (no AI key, no credits). Includes a per-post "Lock SEO Fields" metabox and a Test & Reprocess tool.
 * **SEO Health** — audit every post type/page against on-page SEO best practices (keyphrase optimization, titles & meta, content quality, media alt text, internal links), with a health score, per-page drill-down, and a priority-fix list. On-page checks run entirely in WordPress; deeper checks (Core Web Vitals, site crawl, Search Console, AI suggestions) are surfaced as platform-connected features.
 * **Reports** — run a batched site audit, review site-wide scores and highest-impact fixes, simulate improvements, manage tasks, compare trends, and use the page-level Focus workflow.
+* **Reports → Links** — link rules (a page on this site or an external URL, plus the wording that should point at it), unlinked-mention opportunities to review and insert, suggested destinations, orphan pages, and a ledger of placed links. Nothing is written until an editor inserts a reviewed row; each insert saves a revision.
 * **Settings** — build reusable keyphrase and meta-description templates and browse available meta fields (JetEngine, ACF, Meta Box, post meta).
 
 == External Services ==
@@ -53,6 +54,15 @@ This plugin can also connect to a separate Lookit platform webhook (self-hosted 
 * AWS privacy notice: https://aws.amazon.com/privacy/
 
 == Changelog ==
+
+= 3.62.1 =
+* Reports → Links is on (switch off in wp-config.php with define( 'BSM_LINKS_UI', false )). Three panels share one scan: Link rules, Opportunities, Placed links.
+* Link rules: point wording at a published page or an external URL, with a per-page cap. Rule matches have their own budget (500) separate from automatic matches (250), may repeat on a page (the first occurrence is linked), and are listed first.
+* External rules: the address is read from the saved rule at insert time, never from the request. Pages already linking to that address are not offered again; ignoring a row keys on the rule.
+* Suggested destinations from the scan, with each phrase's source shown; only wording already used as link text on the site is ticked by default.
+* Opportunities: search box and a filter chip per rule; every insert is recorded in Placed links.
+* SEO Health shows incoming internal links (reported, not scored, so scores and Trends do not move) and the links you could add from the page.
+* The scan no longer resolves DNS for external links it reads.
 
 = 3.58.1 =
 * Added the dormant internal-link scanner and safe classic and Elementor insertion engine behind the disabled BSM_LINKS_UI constant.

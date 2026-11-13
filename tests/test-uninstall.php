@@ -15,6 +15,9 @@ class Test_Lookit_SEO_Copilot_Uninstall extends WP_UnitTestCase {
 		update_option( 'bsm_links_scan_state', array( 'offset' => 1 ) );
 		update_option( 'bsm_links_acc_state', array( 'offset' => 1 ) );
 		update_option( 'bsm_links_map_state', array( 'offset' => 1 ) );
+		update_option( 'bsm_links_rules', array( array( 'id' => 'r1' ) ) );
+		update_option( 'bsm_links_dismissed', array( 3 ) );
+		update_option( 'bsm_links_placed', array( array( 'src' => 1 ) ) );
 		update_option( 'bsm_ai_webhook_token', 'text-token' );
 		$user_id = self::factory()->user->create();
 		update_user_meta( $user_id, 'bsm_task_checks', array( 'url-length' ) );
@@ -42,6 +45,9 @@ class Test_Lookit_SEO_Copilot_Uninstall extends WP_UnitTestCase {
 		$this->assertFalse( get_option( 'bsm_links_scan_state' ) );
 		$this->assertFalse( get_option( 'bsm_links_acc_state' ) );
 		$this->assertFalse( get_option( 'bsm_links_map_state' ) );
+		$this->assertFalse( get_option( 'bsm_links_rules' ) );
+		$this->assertFalse( get_option( 'bsm_links_dismissed' ) );
+		$this->assertFalse( get_option( 'bsm_links_placed' ) );
 		$this->assertFalse( get_option( 'bsm_ai_webhook_token' ) );
 		$this->assertSame( '', get_user_meta( $user_id, 'bsm_task_checks', true ) );
 		$this->assertSame( '', get_user_meta( $user_id, 'bsm_task_done', true ) );
