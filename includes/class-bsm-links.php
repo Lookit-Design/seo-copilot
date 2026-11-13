@@ -13,34 +13,34 @@ defined( 'ABSPATH' ) || exit;
 
 class BSM_Links {
 
-	const OPTION        = 'bsm_links_snapshot';
-	const IGNORED       = 'bsm_links_ignored';
-	const STATE_OPTION  = 'bsm_links_scan_state';
-	const LEGACY_ACC    = 'bsm_links_acc_state';
-	const LEGACY_MAP    = 'bsm_links_map_state';
-	const SCHEMA        = 1;
-	const BATCH         = 25;
-	const MAP_BATCH     = 100;
-	const STATE_TTL     = 900;
-	const SOURCE_CAP    = 2000;
-	const MAP_CAP       = 1000;
-	const OPP_CAP       = 250;
-	const RULE_CAP      = 500;
-	const PER_SOURCE    = 3;
-	const ANCHOR_CAP    = 10;
-	const CAND_CAP      = 40;
-	const INCOMING_CAP  = 3000;
-	const SNIP_PAD      = 70;
+	const OPTION       = 'bsm_links_snapshot';
+	const IGNORED      = 'bsm_links_ignored';
+	const STATE_OPTION = 'bsm_links_scan_state';
+	const LEGACY_ACC   = 'bsm_links_acc_state';
+	const LEGACY_MAP   = 'bsm_links_map_state';
+	const SCHEMA       = 1;
+	const BATCH        = 25;
+	const MAP_BATCH    = 100;
+	const STATE_TTL    = 900;
+	const SOURCE_CAP   = 2000;
+	const MAP_CAP      = 1000;
+	const OPP_CAP      = 250;
+	const RULE_CAP     = 500;
+	const PER_SOURCE   = 3;
+	const ANCHOR_CAP   = 10;
+	const CAND_CAP     = 40;
+	const INCOMING_CAP = 3000;
+	const SNIP_PAD     = 70;
 
 	/** URL => post ID, for one scan batch only. */
 	private static array $resolved = array();
-	const LIST_CAP      = 25;
-	const IGNORE_CAP    = 500;
-	const MAX_HTML      = 1000000;
-	const EL_MAX_RAW    = 2000000;
-	const EL_MAX_DEPTH  = 30;
-	const EL_MAX_NODES  = 5000;
-	const EL_MAX_STRING = 500000;
+	const LIST_CAP                 = 25;
+	const IGNORE_CAP               = 500;
+	const MAX_HTML                 = 1000000;
+	const EL_MAX_RAW               = 2000000;
+	const EL_MAX_DEPTH             = 30;
+	const EL_MAX_NODES             = 5000;
+	const EL_MAX_STRING            = 500000;
 
 	private static function store_option( string $name, array $value ): bool {
 		if ( isset( wp_load_alloptions()[ $name ] ) ) {
@@ -446,7 +446,7 @@ class BSM_Links {
 				'ext'         => $ext,
 				'first'       => ! empty( $candidate['first'] ),
 			);
-			$per_dst[ $dkey ] = 1 + (int) ( $per_dst[ $dkey ] ?? 0 );
+			$per_dst[ $dkey ]    = 1 + (int) ( $per_dst[ $dkey ] ?? 0 );
 			if ( $is_rule ) {
 				++$aggregate['n_rule'];
 			} else {
@@ -457,25 +457,25 @@ class BSM_Links {
 	}
 
 	/** Plain-text context around a match, for the review table. */
-	private static function snippet( array $source, array $match ): array {
+	private static function snippet( array $source, array $occurrence ): array {
 		$html = '';
 		foreach ( $source['nodes'] as $node ) {
-			if ( $node['path'] === $match['node'] ) {
+			if ( $node['path'] === $occurrence['node'] ) {
 				$html = (string) $node['html'];
 				break;
 			}
 		}
 		$plain = trim( (string) preg_replace( '/\s+/u', ' ', html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES, 'UTF-8' ) ) );
-		$pos   = mb_stripos( $plain, $match['phrase'] );
+		$pos   = mb_stripos( $plain, $occurrence['phrase'] );
 		if ( false === $pos ) {
 			return array(
-				'text' => $match['phrase'],
+				'text' => $occurrence['phrase'],
 				'lead' => false,
 			);
 		}
 		$start = max( 0, $pos - self::SNIP_PAD );
 		return array(
-			'text' => trim( mb_substr( $plain, $start, mb_strlen( $match['phrase'] ) + 2 * self::SNIP_PAD ) ),
+			'text' => trim( mb_substr( $plain, $start, mb_strlen( $occurrence['phrase'] ) + 2 * self::SNIP_PAD ) ),
 			'lead' => $start > 0,
 		);
 	}
@@ -927,6 +927,17 @@ class BSM_Links {
 		if ( '' === $url || is_wp_error( $opportunity ) || is_wp_error( $document ) ) {
 			return '' === $url ? new WP_Error( 'unsafe_url', __( 'The destination URL is not safe.', 'bulk-keyphrase-manager' ) ) : ( is_wp_error( $opportunity ) ? $opportunity : $document );
 		}
+		if ( 'rule' === ( $opportunity['via'] ?? '' ) ) {
+			$current_rule = BSM_Link_Rules::find( (string) $opportunity['rule'] );
+			if (
+				! $current_rule || empty( $current_rule['on'] ) ||
+				(int) $current_rule['dst'] !== $target_id ||
+				! in_array( BSM_Link_Rules::clean_phrase( $phrase ), $current_rule['phrases'], true ) ||
+				$url !== (string) $opportunity['to_url']
+			) {
+				return new WP_Error( 'stale_rule', __( 'The link rule changed after the scan. Scan again.', 'bulk-keyphrase-manager' ) );
+			}
+		}
 		if ( ! hash_equals( (string) $opportunity['fingerprint'], (string) $document['fingerprint'] ) ) {
 			return new WP_Error( 'stale_content', __( 'The source content changed after the scan. Scan again.', 'bulk-keyphrase-manager' ) );
 		}
@@ -1133,7 +1144,7 @@ class BSM_Links {
 			$settings = isset( $element['settings'] ) && is_array( $element['settings'] ) ? $element['settings'] : array();
 			$type     = (string) ( $element['widgetType'] ?? '' );
 			if ( 'heading' === $type && is_string( $settings['title'] ?? null ) ) {
-				$tag     = in_array( $settings['header_size'] ?? 'h2', array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) ? $settings['header_size'] : 'h2';
+				$tag     = in_array( $settings['header_size'] ?? 'h2', array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true ) ? ( $settings['header_size'] ?? 'h2' ) : 'h2';
 				$parts[] = '<' . $tag . '>' . $settings['title'] . '</' . $tag . '>';
 			} elseif ( 'text-editor' === $type && is_string( $settings['editor'] ?? null ) && strlen( $settings['editor'] ) <= self::EL_MAX_STRING ) {
 				$parts[] = $settings['editor'];

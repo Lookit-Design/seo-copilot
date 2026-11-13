@@ -34,7 +34,7 @@
 	function esc( value ) {
 		var element = document.createElement( 'div' );
 		element.textContent = value === null || value === undefined ? '' : String( value );
-		return element.innerHTML;
+		return element.innerHTML.replace( /"/g, '&quot;' ).replace( /'/g, '&#39;' );
 	}
 	function n( value ) {
 		return Number( value || 0 ).toLocaleString();

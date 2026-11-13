@@ -129,7 +129,7 @@ class BSM_Reports {
 		}
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only view selection.
-		$view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : 'report';
+		$view  = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : 'report';
 		$links = defined( 'BSM_LINKS_UI' ) && BSM_LINKS_UI;
 		if ( ! in_array( $view, array( 'report', 'simulator', 'tasks', 'trends' ), true ) && ! ( $links && 'links' === $view ) ) {
 			$view = 'report';

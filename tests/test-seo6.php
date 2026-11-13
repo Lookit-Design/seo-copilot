@@ -544,7 +544,7 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 	}
 
 	private function rule( array $rule ): string {
-		$rule += array(
+		$rule   += array(
 			'id'  => 'r' . strtolower( wp_generate_password( 8, false, false ) ),
 			'dst' => 0,
 			'url' => '',
@@ -558,20 +558,20 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 	}
 
 	public function test_rule_phrase_is_offered_even_when_repeated_and_links_first_occurrence(): void {
-		$target = self::factory()->post->create(
+		$target   = self::factory()->post->create(
 			array(
 				'post_status' => 'publish',
 				'post_type'   => 'page',
 				'post_title'  => 'Rule target',
 			)
 		);
-		$rule   = $this->rule(
+		$rule     = $this->rule(
 			array(
 				'dst'     => $target,
 				'phrases' => array( 'repeated rule phrase' ),
 			)
 		);
-		$source = self::factory()->post->create(
+		$source   = self::factory()->post->create(
 			array(
 				'post_status'  => 'publish',
 				'post_content' => 'The repeated rule phrase once, and the repeated rule phrase twice.',
@@ -599,20 +599,20 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 	}
 
 	public function test_external_rule_inserts_stored_url_and_skips_pages_already_linking(): void {
-		$rule    = $this->rule(
+		$rule     = $this->rule(
 			array(
 				'url'     => 'https://partner.example.org/research/',
 				'label'   => 'Partner',
 				'phrases' => array( 'partner research centre' ),
 			)
 		);
-		$source  = self::factory()->post->create(
+		$source   = self::factory()->post->create(
 			array(
 				'post_status'  => 'publish',
 				'post_content' => 'Read the partner research centre findings.',
 			)
 		);
-		$already = self::factory()->post->create(
+		$already  = self::factory()->post->create(
 			array(
 				'post_status'  => 'publish',
 				'post_content' => 'The partner research centre is <a href="http://www.partner.example.org/research">here</a>.',
@@ -653,6 +653,46 @@ class Test_Lookit_SEO_Copilot_SEO6 extends WP_UnitTestCase {
 		delete_option( BSM_Link_Rules::OPTION );
 		$this->assertSame( 'stale_rule', BSM_Links::insert_link( $source, 0, 'deleted external rule', $rule )->get_error_code() );
 		$this->assertStringNotContainsString( '<a ', get_post( $source )->post_content );
+	}
+
+	public function test_changed_or_paused_rules_cannot_insert_from_old_snapshot(): void {
+		$target = $this->target( 'rule target wording', 'Rule target' );
+		foreach ( array( false, true ) as $external ) {
+			delete_option( BSM_Link_Rules::OPTION );
+			$rule   = $this->rule(
+				array(
+					'dst'     => $external ? 0 : $target,
+					'url'     => $external ? 'https://partner.example.org/original/' : '',
+					'phrases' => array( 'changed rule phrase' ),
+				)
+			);
+			$source = self::factory()->post->create(
+				array(
+					'post_status'  => 'publish',
+					'post_content' => 'A changed rule phrase mention.',
+				)
+			);
+			$this->finish_scan();
+			$original = get_option( BSM_Link_Rules::OPTION );
+			foreach ( array( 'pause', 'phrase', 'destination', 'delete' ) as $change ) {
+				$rules = $original;
+				if ( 'pause' === $change ) {
+					$rules[0]['on'] = false;
+				} elseif ( 'phrase' === $change ) {
+					$rules[0]['phrases'] = array( 'replacement rule phrase' );
+				} elseif ( 'destination' === $change ) {
+					$rules[0]['url'] = 'https://partner.example.org/replacement/';
+					$rules[0]['dst'] = 0;
+				} else {
+					$rules = array();
+				}
+				update_option( BSM_Link_Rules::OPTION, $rules, false );
+				$result = BSM_Links::insert_link( $source, $external ? 0 : $target, 'changed rule phrase', $external ? $rule : '' );
+				$this->assertWPError( $result );
+				$this->assertSame( 'stale_rule', $result->get_error_code(), $change );
+				$this->assertSame( 'A changed rule phrase mention.', get_post( $source )->post_content );
+			}
+		}
 	}
 
 	public function test_ignore_keys_external_rows_on_rule_id(): void {
